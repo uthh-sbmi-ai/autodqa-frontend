@@ -1,8 +1,7 @@
 # AutoDQA Frontend
 
 Static web console for AutoDQA (autonomous data quality assessment of a
-clinical data warehouse). The browser authenticates against Amazon Cognito, then invokes the AgentCore
-Runtime directly with the Cognito JWT
+clinical data warehouse). 
 
 ## Contents
 
