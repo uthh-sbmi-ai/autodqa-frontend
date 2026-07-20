@@ -1,0 +1,1 @@
+window.AUTODQA_CONFIG = {"region": "us-east-1", "clientId": "2d1rv6sekcbah2lfb5it1bgh6j", "runtimeArn": "arn:aws:bedrock-agentcore:us-east-1:202102860812:runtime/autodqa-PXApbq3JW9", "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"};
