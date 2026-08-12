@@ -22,6 +22,14 @@
      (WCAG 1.4.10 Reflow at 320px, and 1.4.4 Resize Text at 200% zoom). */
   header { padding: 8px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   header b { color: #58a6ff; }
+  /* Institutional logo signature, top left, as the web standards require. Shipped
+     as-is: its own grey (#77787B, 4.29:1 here) and terracotta (#B86646, 4.53:1)
+     read fine on this background, and recolouring an institutional mark would
+     breach brand standards. Deliberately not a link — the nav already carries the
+     required text link to uth.edu, and a second one would both duplicate it for
+     screen readers and need a 44px target the 24px lockup cannot give. */
+  .brand { height: 24px; width: auto; display: block; flex: none; }
+
   /* The page h1. Reset the UA heading styles so it renders as the header line it
      always was — the <b> inside keeps its own weight. */
   .title { font-size: inherit; font-weight: 400; margin: 0; }
@@ -146,6 +154,7 @@
   </nav>
 
   <header>
+    <img class="brand" src="uth_logo.svg" alt="UTHealth Houston" width="255" height="24">
     <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
     <span class="mid">
       <span class="login" id="login">

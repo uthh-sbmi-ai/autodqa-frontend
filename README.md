@@ -12,6 +12,9 @@ Cloudflare Access); previously hosted on AWS CloudFront + S3.
 - `config.js` — generated deployment config (Cognito region/client id, runtime
   ARN, model id). Not secret — these values are shipped to every browser — but
   environment-specific.
+- `uth_logo.svg` — the UTHealth Houston logo signature, required in the header by
+  the institutional web standards. Referenced by `index.html`, so it has to ship
+  with it.
 
 ## How it works
 
