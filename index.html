@@ -14,11 +14,13 @@
      the boxes they sit in. */
   body { margin: 0; font: 0.875rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
          background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
-  header { padding: 8px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; }
+  /* flex-wrap so the header reflows instead of forcing a 744px page minimum
+     (WCAG 1.4.10 Reflow at 320px, and 1.4.4 Resize Text at 200% zoom). */
+  header { padding: 8px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   header b { color: #58a6ff; }
   /* The page h1. Reset the UA heading styles so it renders as the header line it
      always was — the <b> inside keeps its own weight. */
-  .title { white-space: nowrap; font-size: inherit; font-weight: 400; margin: 0; }
+  .title { font-size: inherit; font-weight: 400; margin: 0; }
 
   /* Visually hidden but still in the accessibility tree — for the announcer.
      Not display:none / visibility:hidden, which would hide it from screen
@@ -39,17 +41,25 @@
   /* login inline in the header, centered between title and model */
   .mid { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
   .login { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .login input { padding: 5px 8px; font-size: 0.75rem; width: 150px; min-height: 44px; }
+  .login input { padding: 5px 8px; font-size: 0.75rem; width: 150px; max-width: 100%; min-height: 44px; }
   .login button { padding: 5px 10px; font-size: 0.75rem; }
   .login .err { color: #f85149; font-size: 0.6875rem; }
   #who { color: #8b949e; font-size: 0.75rem; }
-  #model { color: #9aa1aa; font-size: 0.75rem; white-space: nowrap; }
+  #model { color: #9aa1aa; font-size: 0.75rem; }
 
-  input, textarea { background: #010409; border: 1px solid #30363d; color: #c9d1d9;
+  /* Border at 3.51:1 against the page (was #30363d at 1.55) — WCAG 1.4.11
+     Non-text Contrast. These fields have almost no fill contrast, so the border
+     is the only thing identifying them as inputs. */
+  input, textarea { background: #010409; border: 1px solid #636b75; color: #c9d1d9;
           padding: 8px 10px; border-radius: 6px; font: inherit; }
   /* 44x44 floor on every button — WCAG 2.5.5 Target Size (Enhanced), which is
-     what SiteImprove's "enhanced size" check enforces. */
-  button { background: #1a6327; border: 0; color: #fff; padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer;
+     what SiteImprove's "enhanced size" check enforces.
+     The border is not decoration: the fill had to go dark (#1a6327) to give white
+     text 7:1, which dropped the fill-vs-page boundary to 2.58 and failed WCAG
+     1.4.11 (needs 3:1). No single green satisfies both — 7:1 text wants luminance
+     <= 0.10, a 3:1 boundary wants >= 0.12 — so the border carries the boundary at
+     7.45:1 and the fill is free to stay dark. */
+  button { background: #1a6327; border: 1px solid #3fb950; color: #fff; padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer;
            min-height: 44px; min-width: 44px; }
   button:disabled { opacity: .5; cursor: wait; }
 
@@ -250,7 +260,10 @@
            inside <main> because hidden text still needs to be in a landmark.
            role="log" appends, so fast events queue instead of overwriting. -->
       <div id="announcer" class="sr-only" role="log" aria-live="polite"></div>
-      <div id="stream"></div>
+      <!-- tabindex="0" so this scrollable region can be reached and arrow-scrolled
+           without a mouse: a long text-only answer contains nothing focusable, so
+           there was otherwise no way to read past the fold (WCAG 2.1.1). -->
+      <div id="stream" tabindex="0" role="region" aria-label="Conversation"></div>
       <form id="taskForm">
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="send" type="submit">Run</button>
