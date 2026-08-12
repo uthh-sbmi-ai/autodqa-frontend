@@ -9,7 +9,8 @@
 <meta name="description" content="Web console for AutoDQA, the autonomous data-quality agent for the UTHealth Houston clinical data warehouse. Sign in to submit a data-quality task.">
 <title>AutoDQA</title>
 <!-- Apply the saved palette before first paint, so a non-default choice does not
-     flash the default first. TEMPORARY, with the rest of the switcher. -->
+     flash the default first. With no stored value nothing is set and the default
+     (Slate & Sage) renders straight from :root. -->
 <script>try{var p=localStorage.getItem('autodqa-palette');if(p)document.documentElement.setAttribute('data-palette',p);}catch(e){}</script>
 <style>
   /* ---- Brand palettes ------------------------------------------------------
@@ -20,10 +21,10 @@
      text on a dark theme — navy is 1.3:1 on charcoal, and slate, green and cool
      gray all land under 4.5 — so the brand colours sit in the accents, fills
      and borders, with neutrals carrying the body copy.
-     TEMPORARY: an evaluation aid. Once one is chosen, keep that block and drop
-     the other two, the .palette control, and the switcher in app.js. */
-  :root, :root[data-palette="terracotta"] {
-    color-scheme: dark;
+     Slate & Sage is the default — it is the bare :root block below, so the page
+     renders it with no attribute set and no JavaScript. The other two stay
+     selectable from the Palette control in the header. */
+  :root[data-palette="terracotta"] {
     --bg: #100D0C; --surface: #070605; --panel: #0C0A09; --card: #16120F; --field: #080605;
     --text: #E7E2DD; --muted: #B8A999; --accent: #F4B824;
     --rule: #2B2320; --border: #7A6A5E;
@@ -43,7 +44,9 @@
     --user-bg: #0A3B70; --user-border: #2C6094;
     --glow: rgba(244, 184, 36, .85);
   }
-  :root[data-palette="sage"] {
+  /* The default. Bare :root, so it applies with no attribute and no JS. */
+  :root, :root[data-palette="sage"] {
+    color-scheme: dark;
     --bg: #0D1117; --surface: #010409; --panel: #0B0E13; --card: #12161C; --field: #010409;
     --text: #D6DEDA; --muted: #B2C0BB; --accent: #B2C0BB;
     --rule: #242B2A; --border: #6D8189;
@@ -53,7 +56,7 @@
     --glow: rgba(178, 192, 187, .85);
   }
 
-  /* Palette switcher — temporary, see above. */
+  /* Palette switcher. Stays in the UI; the choice is per-browser, not deployed. */
   .palette { display: inline-flex; align-items: center; gap: 6px;
              font-size: 0.6875rem; color: var(--muted); }
   .palette select { background: var(--field); color: var(--text); font: inherit;
@@ -237,13 +240,12 @@
       <span id="who"></span>
     </span>
     <span id="model"></span>
-    <!-- TEMPORARY evaluation control — remove once a palette is chosen. -->
     <span class="palette">
       <label for="paletteSel">Palette</label>
       <select id="paletteSel">
+        <option value="sage">Slate &amp; Sage</option>
         <option value="terracotta">Terracotta</option>
         <option value="navy">Navy &amp; Gold</option>
-        <option value="sage">Slate &amp; Sage</option>
       </select>
     </span>
   </header>
