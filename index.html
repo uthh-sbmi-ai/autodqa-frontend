@@ -11,7 +11,9 @@
          background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
   header { padding: 8px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; }
   header b { color: #58a6ff; }
-  .title { white-space: nowrap; }
+  /* The page h1. Reset the UA heading styles so it renders as the header line it
+     always was — the <b> inside keeps its own weight. */
+  .title { white-space: nowrap; font-size: inherit; font-weight: 400; margin: 0; }
 
   /* login inline in the header, centered between title and model */
   .mid { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
@@ -79,7 +81,7 @@
 </head>
 <body>
   <header>
-    <span class="title"><b>AutoDQA</b> — data-quality agent</span>
+    <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
     <span class="mid">
       <span class="login" id="login">
         <input id="email" type="email" placeholder="email" autocomplete="username">
