@@ -181,6 +181,20 @@ function renderEvent(ev) {
   // HumanMessage / raw — nothing to render.
 }
 
+// ---- Palette switcher (TEMPORARY evaluation aid) ----
+// Remove this block, the .palette control and the extra :root[data-palette]
+// rules once a palette is chosen. The <head> applies the saved value before
+// first paint; this only keeps the control in sync and stores changes.
+const PALETTE_KEY = "autodqa-palette";
+const paletteSel = $("paletteSel");
+if (paletteSel) {
+  paletteSel.value = document.documentElement.getAttribute("data-palette") || "terracotta";
+  paletteSel.addEventListener("change", () => {
+    document.documentElement.setAttribute("data-palette", paletteSel.value);
+    try { localStorage.setItem(PALETTE_KEY, paletteSel.value); } catch (e) { /* private mode */ }
+  });
+}
+
 // ---- Wiring ----
 if (CFG.model) $("model").textContent = CFG.model;
 

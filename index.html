@@ -8,8 +8,58 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Web console for AutoDQA, the autonomous data-quality agent for the UTHealth Houston clinical data warehouse. Sign in to submit a data-quality task.">
 <title>AutoDQA</title>
+<!-- Apply the saved palette before first paint, so a non-default choice does not
+     flash the default first. TEMPORARY, with the rest of the switcher. -->
+<script>try{var p=localStorage.getItem('autodqa-palette');if(p)document.documentElement.setAttribute('data-palette',p);}catch(e){}</script>
 <style>
-  :root { color-scheme: dark; }
+  /* ---- Brand palettes ------------------------------------------------------
+     Three candidates built from the UTHealth Houston brand colours (parsed out
+     of UTH-ColorPalette-RGB.ase). Every pair was checked before it landed here:
+     body / muted / accent / status text >= 7:1 on every surface it appears on,
+     component boundaries >= 3:1. Note most of the brand palette CANNOT carry
+     text on a dark theme — navy is 1.3:1 on charcoal, and slate, green and cool
+     gray all land under 4.5 — so the brand colours sit in the accents, fills
+     and borders, with neutrals carrying the body copy.
+     TEMPORARY: an evaluation aid. Once one is chosen, keep that block and drop
+     the other two, the .palette control, and the switcher in app.js. */
+  :root, :root[data-palette="terracotta"] {
+    color-scheme: dark;
+    --bg: #100D0C; --surface: #070605; --panel: #0C0A09; --card: #16120F; --field: #080605;
+    --text: #E7E2DD; --muted: #B8A999; --accent: #F4B824;
+    --rule: #2B2320; --border: #7A6A5E;
+    --btn-bg: #5C2F1C; --btn-border: #B86645; --btn-text: #FFFFFF;
+    --ok: #8FD694; --err: #FF9A92;
+    --user-bg: #2A1B13; --user-border: #5C4132;
+    --glow: rgba(244, 184, 36, .85);
+  }
+  /* PANTONE 295 navy as the surface — the one place navy works, since it is
+     unusable as text anywhere. Gold buttons carry navy labels at 8.16:1. */
+  :root[data-palette="navy"] {
+    --bg: #002856; --surface: #001B3B; --panel: #00234A; --card: #012E61; --field: #001730;
+    --text: #E8EEF5; --muted: #B2C0BB; --accent: #F4B824;
+    --rule: #0B3D72; --border: #6E90AE;
+    --btn-bg: #F4B824; --btn-border: #F4B824; --btn-text: #002856;
+    --ok: #8FD694; --err: #FF9A92;
+    --user-bg: #0A3B70; --user-border: #2C6094;
+    --glow: rgba(244, 184, 36, .85);
+  }
+  :root[data-palette="sage"] {
+    --bg: #0D1117; --surface: #010409; --panel: #0B0E13; --card: #12161C; --field: #010409;
+    --text: #D6DEDA; --muted: #B2C0BB; --accent: #B2C0BB;
+    --rule: #242B2A; --border: #6D8189;
+    --btn-bg: #274135; --btn-border: #597C69; --btn-text: #FFFFFF;
+    --ok: #8FD694; --err: #FF9A92;
+    --user-bg: #1B2A33; --user-border: #375059;
+    --glow: rgba(178, 192, 187, .85);
+  }
+
+  /* Palette switcher — temporary, see above. */
+  .palette { display: inline-flex; align-items: center; gap: 6px;
+             font-size: 0.6875rem; color: var(--muted); }
+  .palette select { background: var(--field); color: var(--text); font: inherit;
+                    font-size: 0.6875rem; border: 1px solid var(--border);
+                    border-radius: 6px; padding: 5px 8px; min-height: 44px; }
+
   * { box-sizing: border-box; }
   /* Font sizes are rem so they track the reader's default font size (1rem = 16px
      by default, so 0.875rem is the 14px this has always been). The <text> inside
@@ -17,11 +67,11 @@
      scale with the diagram, and rem there would size the labels independently of
      the boxes they sit in. */
   body { margin: 0; font: 0.875rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-         background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+         background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
   /* flex-wrap so the header reflows instead of forcing a 744px page minimum
      (WCAG 1.4.10 Reflow at 320px, and 1.4.4 Resize Text at 200% zoom). */
-  header { padding: 8px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-  header b { color: #58a6ff; }
+  header { padding: 8px 16px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header b { color: var(--accent); }
   /* Institutional logo signature, top left of the global nav. Shipped as-is: its
      grey (#77787B) and terracotta (#B86646) read fine on the nav's #010409, and
      recolouring an institutional mark would breach brand standards. Deliberately
@@ -35,18 +85,18 @@
      always was — the <b> inside keeps its own weight. */
   .title { font-size: inherit; font-weight: 400; margin: 0; }
   .ident { display: flex; flex-direction: column; gap: 1px; }
-  .unit { margin: 0; font-size: 0.6875rem; color: #9aa1aa; letter-spacing: .3px; }
+  .unit { margin: 0; font-size: 0.6875rem; color: var(--muted); letter-spacing: .3px; }
 
   /* Required footer. Same 44px targets and palette as the global nav. */
   .sitefoot { display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px;
-              background: #010409; border-top: 1px solid #21262d; padding: 0 16px;
-              font-size: 0.6875rem; color: #9aa1aa; }
+              background: var(--surface); border-top: 1px solid var(--rule); padding: 0 16px;
+              font-size: 0.6875rem; color: var(--muted); }
   /* gap, because inline-flex drops the whitespace between its children — without
      it these read "Content owner:BIG-Arc" and "Last revisedAugust 12". */
   .sitefoot > span { display: inline-flex; align-items: center; min-height: 44px; gap: .35em; }
-  .sitefoot a { color: #c9d1d9; text-decoration: none; display: inline-flex;
+  .sitefoot a { color: var(--text); text-decoration: none; display: inline-flex;
                 align-items: center; min-height: 44px; min-width: 44px; }
-  .sitefoot a:hover, .sitefoot a:focus { color: #58a6ff; text-decoration: underline; }
+  .sitefoot a:hover, .sitefoot a:focus { color: var(--accent); text-decoration: underline; }
 
   /* Visually hidden but still in the accessibility tree — for the announcer.
      Not display:none / visibility:hidden, which would hide it from screen
@@ -62,21 +112,21 @@
      a dark theme. 44px targets and >=7:1 text, same bars as the rest of the page.
      :not(.skip-link) so the skip link keeps its own colour and box. */
   .globalnav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px;
-               background: #010409; border-bottom: 1px solid #21262d; padding: 0 16px; }
+               background: var(--surface); border-bottom: 1px solid var(--rule); padding: 0 16px; }
   .globalnav a:not(.skip-link) {
-      color: #c9d1d9; text-decoration: none; font-size: 0.6875rem; letter-spacing: 1.6px;
+      color: var(--text); text-decoration: none; font-size: 0.6875rem; letter-spacing: 1.6px;
       text-transform: uppercase; display: inline-flex; align-items: center; justify-content: center;
       min-height: 44px; min-width: 44px; }   /* min-width for the short ones — "A-Z" was 24.7px */
   .globalnav a:not(.skip-link):hover,
-  .globalnav a:not(.skip-link):focus { color: #58a6ff; text-decoration: underline; }
+  .globalnav a:not(.skip-link):focus { color: var(--accent); text-decoration: underline; }
 
   /* Skip link: first thing a keyboard reaches, parked off-screen until focused.
      Not display:none / visibility:hidden — those would take it out of the tab
      order entirely. Reuses the button green, so it clears 7:1 against white. */
   .skip-link { position: fixed; top: -6.25rem; left: 0.5rem; z-index: 20;
                display: inline-flex; align-items: center; min-height: 44px;
-               padding: 8px 14px; border-radius: 6px; background: #1a6327;
-               color: #fff; text-decoration: none; font-size: 0.875rem;
+               padding: 8px 14px; border-radius: 6px; background: var(--btn-bg);
+               color: var(--btn-text); text-decoration: none; font-size: 0.875rem;
                transition: top .15s ease; }
   .skip-link:focus { top: 0.5rem; }
 
@@ -85,14 +135,14 @@
   .login { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .login input { padding: 5px 8px; font-size: 0.75rem; width: 150px; max-width: 100%; min-height: 44px; }
   .login button { padding: 5px 10px; font-size: 0.75rem; }
-  .login .err { color: #f85149; font-size: 0.6875rem; }
-  #who { color: #8b949e; font-size: 0.75rem; }
-  #model { color: #9aa1aa; font-size: 0.75rem; }
+  .login .err { color: var(--err); font-size: 0.6875rem; }
+  #who { color: var(--muted); font-size: 0.75rem; }
+  #model { color: var(--muted); font-size: 0.75rem; }
 
   /* Border at 3.51:1 against the page (was #30363d at 1.55) — WCAG 1.4.11
      Non-text Contrast. These fields have almost no fill contrast, so the border
      is the only thing identifying them as inputs. */
-  input, textarea { background: #010409; border: 1px solid #636b75; color: #c9d1d9;
+  input, textarea { background: var(--field); border: 1px solid var(--border); color: var(--text);
           padding: 8px 10px; border-radius: 6px; font: inherit; }
   /* 44x44 floor on every button — WCAG 2.5.5 Target Size (Enhanced), which is
      what SiteImprove's "enhanced size" check enforces.
@@ -101,22 +151,22 @@
      1.4.11 (needs 3:1). No single green satisfies both — 7:1 text wants luminance
      <= 0.10, a 3:1 boundary wants >= 0.12 — so the border carries the boundary at
      7.45:1 and the fill is free to stay dark. */
-  button { background: #1a6327; border: 1px solid #3fb950; color: #fff; padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer;
+  button { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--btn-text); padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer;
            min-height: 44px; min-width: 44px; }
   button:disabled { opacity: .5; cursor: wait; }
 
   /* two-pane body: architecture diagram left, chat right */
   #appBody { display: flex; flex: 1; min-height: 0; }
-  .diagram-pane { width: clamp(340px, 34vw, 560px); border-right: 1px solid #21262d;
-                  background: #0b0e13; overflow: auto; padding: 14px 14px 24px; }
-  .diagram-pane h2 { font-size: 0.6875rem; color: #9aa1aa; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .6px; }
-  .cap { font-size: 0.75rem; color: #9aa1aa; margin: 0 0 12px; min-height: 0.9375rem; transition: color .2s; }
-  .cap.live { color: #58a6ff; font-weight: 500; }
-  .arch-card { background: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 8px; }
+  .diagram-pane { width: clamp(340px, 34vw, 560px); border-right: 1px solid var(--rule);
+                  background: var(--panel); overflow: auto; padding: 14px 14px 24px; }
+  .diagram-pane h2 { font-size: 0.6875rem; color: var(--muted); margin: 0 0 4px; text-transform: uppercase; letter-spacing: .6px; }
+  .cap { font-size: 0.75rem; color: var(--muted); margin: 0 0 12px; min-height: 0.9375rem; transition: color .2s; }
+  .cap.live { color: var(--accent); font-weight: 500; }
+  .arch-card { background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 8px; }
   .arch-svg { width: 100%; display: block; }
   .anode { transition: opacity .25s ease, filter .25s ease; }
   .arch-svg.running .anode { opacity: .32; }
-  .anode.active { opacity: 1 !important; filter: drop-shadow(0 0 6px rgba(88,166,255,.85)) brightness(1.4) saturate(1.1); }
+  .anode.active { opacity: 1 !important; filter: drop-shadow(0 0 6px var(--glow)) brightness(1.4) saturate(1.1); }
 
   .chatpanel { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 16px; }
   #stream { flex: 1; overflow-y: auto; padding-right: 6px; max-width: 900px; width: 100%; margin: 0 auto; }
@@ -124,25 +174,25 @@
   .msg { margin: 10px 0; display: flex; }
   .msg.user { justify-content: flex-end; }
   .msg .bubble { padding: 9px 13px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; max-width: 82%; }
-  .msg.user .bubble { background: #1f2d45; border: 1px solid #2f4067; border-bottom-right-radius: 4px; }
-  .msg.agent .bubble { background: #12161c; border: 1px solid #21262d; border-left: 3px solid #2ea043; border-bottom-left-radius: 4px; }
+  .msg.user .bubble { background: var(--user-bg); border: 1px solid var(--user-border); border-bottom-right-radius: 4px; }
+  .msg.agent .bubble { background: var(--card); border: 1px solid var(--rule); border-left: 3px solid var(--ok); border-bottom-left-radius: 4px; }
 
-  details.tool { background: #0f1620; border: 1px solid #21313f; border-radius: 8px; margin: 8px 0; }
-  details.tool summary { cursor: pointer; padding: 8px 12px; color: #58a6ff; list-style: none; }
+  details.tool { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; margin: 8px 0; }
+  details.tool summary { cursor: pointer; padding: 8px 12px; color: var(--accent); list-style: none; }
   details.tool summary::-webkit-details-marker { display: none; }
   details.tool pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 0.78125rem;
-                     border-top: 1px solid #21313f; white-space: pre-wrap; word-break: break-word; }
-  details.tool pre.result { color: #7ee787; max-height: 260px; overflow-y: auto; }
+                     border-top: 1px solid var(--rule); white-space: pre-wrap; word-break: break-word; }
+  details.tool pre.result { color: var(--ok); max-height: 260px; overflow-y: auto; }
 
   .line { margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
-  .line.result { color: #8b949e; }
-  .line.error { color: #f85149; }
-  .line.sandbox { color: #58a6ff; font-size: 0.75rem; opacity: .9; }
-  .line.done { color: #3fb950; font-size: 0.75rem; }
+  .line.result { color: var(--muted); }
+  .line.error { color: var(--err); }
+  .line.sandbox { color: var(--accent); font-size: 0.75rem; opacity: .9; }
+  .line.done { color: var(--ok); font-size: 0.75rem; }
   .line.error { white-space: pre-wrap; }   /* multi-line stop reasons */
-  .status { color: #8b949e; margin: 8px 0; font-size: 0.8125rem; }
-  .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid #30363d;
-             border-top-color: #58a6ff; border-radius: 50%; animation: spin .8s linear infinite;
+  .status { color: var(--muted); margin: 8px 0; font-size: 0.8125rem; }
+  .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--rule);
+             border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
              vertical-align: -1px; margin-right: 7px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -187,6 +237,15 @@
       <span id="who"></span>
     </span>
     <span id="model"></span>
+    <!-- TEMPORARY evaluation control — remove once a palette is chosen. -->
+    <span class="palette">
+      <label for="paletteSel">Palette</label>
+      <select id="paletteSel">
+        <option value="terracotta">Terracotta</option>
+        <option value="navy">Navy &amp; Gold</option>
+        <option value="sage">Slate &amp; Sage</option>
+      </select>
+    </span>
   </header>
 
   <div id="appBody" hidden>
