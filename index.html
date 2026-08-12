@@ -32,6 +32,22 @@
   .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
              overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
+  /* Global navigation bar — the web standards require one above all other page
+     elements. Carries only the links the standards name explicitly (Inside, A-Z,
+     Webmail, and links to UTHealth Houston and the school); SBMI's own About /
+     Careers / Apply Now are school marketing and are left out. Palette follows
+     this console rather than the institutional terracotta, which would not sit on
+     a dark theme. 44px targets and >=7:1 text, same bars as the rest of the page.
+     :not(.skip-link) so the skip link keeps its own colour and box. */
+  .globalnav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px;
+               background: #010409; border-bottom: 1px solid #21262d; padding: 0 16px; }
+  .globalnav a:not(.skip-link) {
+      color: #c9d1d9; text-decoration: none; font-size: 0.6875rem; letter-spacing: 1.6px;
+      text-transform: uppercase; display: inline-flex; align-items: center; justify-content: center;
+      min-height: 44px; min-width: 44px; }   /* min-width for the short ones — "A-Z" was 24.7px */
+  .globalnav a:not(.skip-link):hover,
+  .globalnav a:not(.skip-link):focus { color: #58a6ff; text-decoration: underline; }
+
   /* Skip link: first thing a keyboard reaches, parked off-screen until focused.
      Not display:none / visibility:hidden — those would take it out of the tab
      order entirely. Reuses the button green, so it clears 7:1 against white. */
@@ -115,11 +131,21 @@
 </style>
 </head>
 <body>
-  <header>
-    <!-- Inside <header> so it falls within the banner landmark — as a direct child
-         of <body> it was perceivable text outside every landmark. Still the first
-         focusable element, and position:fixed keeps it out of the flex flow. -->
+  <!-- Required above all other page elements. The skip link lives here as the first
+       child so it stays the first thing a keyboard reaches, and so it sits inside a
+       landmark (the nav) rather than loose in <body>. Targets are _blank because
+       leaving the page would discard an in-flight agent run; each says so for
+       screen readers. -->
+  <nav class="globalnav" aria-label="University">
     <a class="skip-link" href="#main">Skip to main content</a>
+    <a href="https://inside.uth.edu/" target="_blank" rel="noopener">Inside<span class="sr-only"> (opens in a new tab)</span></a>
+    <a href="https://www.uth.edu/index/a2z.htm" target="_blank" rel="noopener">A-Z<span class="sr-only"> (opens in a new tab)</span></a>
+    <a href="https://outlook.office.com/" target="_blank" rel="noopener">Webmail<span class="sr-only"> (opens in a new tab)</span></a>
+    <a href="https://www.uth.edu/" target="_blank" rel="noopener">UTHealth Houston<span class="sr-only"> (opens in a new tab)</span></a>
+    <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
+  </nav>
+
+  <header>
     <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
     <span class="mid">
       <span class="login" id="login">
