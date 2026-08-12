@@ -20,6 +20,12 @@
      always was — the <b> inside keeps its own weight. */
   .title { white-space: nowrap; font-size: inherit; font-weight: 400; margin: 0; }
 
+  /* Visually hidden but still in the accessibility tree — for the announcer.
+     Not display:none / visibility:hidden, which would hide it from screen
+     readers too, which is the opposite of the point. */
+  .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+             overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
   /* Skip link: first thing a keyboard reaches, parked off-screen until focused.
      Not display:none / visibility:hidden — those would take it out of the tab
      order entirely. Reuses the button green, so it clears 7:1 against white. */
@@ -95,8 +101,11 @@
 </style>
 </head>
 <body>
-  <a class="skip-link" href="#main">Skip to main content</a>
   <header>
+    <!-- Inside <header> so it falls within the banner landmark — as a direct child
+         of <body> it was perceivable text outside every landmark. Still the first
+         focusable element, and position:fixed keeps it out of the flex flow. -->
+    <a class="skip-link" href="#main">Skip to main content</a>
     <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
     <span class="mid">
       <span class="login" id="login">
@@ -236,6 +245,11 @@
     <!-- tabindex="-1" so the skip link actually moves focus here; without it the
          jump is visual only and the next Tab returns to the top of the page. -->
     <main class="chatpanel" id="main" tabindex="-1">
+      <!-- Screen-reader announcements. Must exist at page load: a live region
+           created at the moment its content changes is not announced. Lives
+           inside <main> because hidden text still needs to be in a landmark.
+           role="log" appends, so fast events queue instead of overwriting. -->
+      <div id="announcer" class="sr-only" role="log" aria-live="polite"></div>
       <div id="stream"></div>
       <form id="taskForm">
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>

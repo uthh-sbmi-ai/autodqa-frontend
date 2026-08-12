@@ -109,8 +109,23 @@ function setTrace(active, label) {
   else { archStepEl.textContent = ARCH_DEFAULT; archStepEl.classList.remove("live"); }
 }
 
+// ---- Screen-reader announcements ----
+// The stream itself is deliberately NOT a live region: it would read every tool
+// result aloud, JSON and all. Instead we announce what happened, and leave the
+// payload on screen for the user to navigate to in their own time.
+const announcerEl = $("announcer");
+
+function announce(msg) {
+  if (!announcerEl || !msg) return;
+  const p = document.createElement("p");
+  p.textContent = msg;
+  announcerEl.appendChild(p);
+  // keep the log bounded — it is never seen, only spoken
+  while (announcerEl.childElementCount > 20) announcerEl.removeChild(announcerEl.firstChild);
+}
+
 // on_tool_end fires per tool call in order (serialized), so match results to open
-// tool cards in order.
+// tool cards in order. Carries the tool name so the result can say which one.
 const pendingTools = [];
 
 function renderEvent(ev) {
@@ -119,38 +134,48 @@ function renderEvent(ev) {
   if (ev.type === "sandbox") {
     const sid = (ev.session || "").replace(/^run-/, "").slice(0, 8);
     const msg = ev.phase === "up" ? "🖥️ sandbox microVM spinning up" : "🖥️ sandbox microVM released";
+    announce(ev.phase === "up" ? "Sandbox starting." : "Sandbox released.");
     return addLine("sandbox", sid ? `${msg} · ${sid}` : msg);
   }
   // Terminal event: every run ends with exactly one of these, so "it just stopped"
   // is never ambiguous. Emitted by entrypoint.py's produce() on every exit path.
   if (ev.type === "done") {
     const n = `${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)`;
-    if (ev.reason === "completed") return addLine("done", `\u2713 finished \u00b7 ${n}`);
-    if (ev.reason === "step_limit")
-      return addLine("error",
-        `\u26a0 STOPPED AT STEP LIMIT (${ev.step_limit}) \u00b7 ${n}\n${ev.message || ""}`);
-    if (ev.reason === "truncated")
-      return addLine("error", `\u26a0 RUN TRUNCATED \u00b7 ${n}\n${ev.message || ""}`);
-    if (ev.reason === "cancelled")
-      return addLine("error", `\u26a0 CANCELLED \u00b7 ${n}\n${ev.message || ""}`);
-    return addLine("error", `\u26a0 STOPPED (${ev.reason}) \u00b7 ${n}\n${ev.message || ""}`);
+    if (ev.reason === "completed") {
+      announce(`Run finished. ${n}.`);
+      return addLine("done", `\u2713 finished \u00b7 ${n}`);
+    }
+    const why = ev.reason === "step_limit" ? `STOPPED AT STEP LIMIT (${ev.step_limit})`
+              : ev.reason === "truncated"  ? "RUN TRUNCATED"
+              : ev.reason === "cancelled"  ? "CANCELLED"
+              : `STOPPED (${ev.reason})`;
+    announce(`Run stopped. ${why}. ${n}. ${ev.message || ""}`);
+    return addLine("error", `\u26a0 ${why} \u00b7 ${n}\n${ev.message || ""}`);
   }
   const c = ev.content;
   if (ev.type === "error") {
     const t = ev.message ?? c;   // produce() sends `message`; the fetch path sends `content`
-    return addLine("error", typeof t === "string" ? t : JSON.stringify(t));
+    const text = typeof t === "string" ? t : JSON.stringify(t);
+    announce("Error. " + text);
+    return addLine("error", text);
   }
   if (ev.type === "ToolMessage") {
     const text = Array.isArray(c) ? c.map((b) => b.text || "").join("") : c;
-    const card = pendingTools.shift();
-    if (card) addToolResult(card, text); else addLine("result", "→ " + text);
+    const pending = pendingTools.shift();
+    // announce that it returned, not what it returned — the payload stays on
+    // screen inside the tool card, reachable by keyboard.
+    announce(pending ? `${pending.name} returned.` : "Tool returned.");
+    if (pending) addToolResult(pending.card, text); else addLine("result", "→ " + text);
     return;
   }
   if (ev.type === "AIMessage") {
-    if (typeof c === "string") { if (c.trim()) addBubble("agent", c); return; }
+    if (typeof c === "string") { if (c.trim()) { addBubble("agent", c); announce(c); } return; }
     for (const b of c || []) {
-      if (b.type === "text" && b.text) addBubble("agent", b.text);
-      else if (b.type === "tool_use") pendingTools.push(addToolCard(b));
+      if (b.type === "text" && b.text) { addBubble("agent", b.text); announce(b.text); }
+      else if (b.type === "tool_use") {
+        announce(`Calling ${b.name}.`);
+        pendingTools.push({ card: addToolCard(b), name: b.name });
+      }
     }
   }
   // HumanMessage / raw — nothing to render.
@@ -196,9 +221,11 @@ $("taskForm").addEventListener("submit", async (e) => {
   status.className = "status";
   status.innerHTML = '<span class="spinner"></span>agent running…';
   $("stream").appendChild(status); scrollDown();
+  announce("Agent running.");   // the spinner is created per run, so it cannot itself be live
   try {
     await invoke(task, renderEvent);
   } catch (e) {
+    announce("Error. " + String(e));
     addLine("error", String(e));
   } finally {
     status.remove();
