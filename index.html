@@ -208,13 +208,16 @@
       </div>
     </aside>
 
-    <div class="chatpanel">
+    <!-- <main>, not a div: the chat column is the primary content, and without a
+         landmark its text (the Run button, the task placeholder) sits outside the
+         landmark structure entirely. The diagram beside it is <aside>/complementary. -->
+    <main class="chatpanel">
       <div id="stream"></div>
       <form id="taskForm">
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="send" type="submit">Run</button>
       </form>
-    </div>
+    </main>
   </div>
 
   <script src="config.js"></script>
