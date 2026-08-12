@@ -7,7 +7,12 @@
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Font sizes are rem so they track the reader's default font size (1rem = 16px
+     by default, so 0.875rem is the 14px this has always been). The <text> inside
+     the SVG deliberately stays in px: those are viewBox user units that already
+     scale with the diagram, and rem there would size the labels independently of
+     the boxes they sit in. */
+  body { margin: 0; font: 0.875rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
          background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
   header { padding: 8px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; }
   header b { color: #58a6ff; }
@@ -18,11 +23,11 @@
   /* login inline in the header, centered between title and model */
   .mid { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
   .login { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .login input { padding: 5px 8px; font-size: 12px; width: 150px; min-height: 44px; }
-  .login button { padding: 5px 10px; font-size: 12px; }
-  .login .err { color: #f85149; font-size: 11px; }
-  #who { color: #8b949e; font-size: 12px; }
-  #model { color: #9aa1aa; font-size: 12px; white-space: nowrap; }
+  .login input { padding: 5px 8px; font-size: 0.75rem; width: 150px; min-height: 44px; }
+  .login button { padding: 5px 10px; font-size: 0.75rem; }
+  .login .err { color: #f85149; font-size: 0.6875rem; }
+  #who { color: #8b949e; font-size: 0.75rem; }
+  #model { color: #9aa1aa; font-size: 0.75rem; white-space: nowrap; }
 
   input, textarea { background: #010409; border: 1px solid #30363d; color: #c9d1d9;
           padding: 8px 10px; border-radius: 6px; font: inherit; }
@@ -36,8 +41,8 @@
   #appBody { display: flex; flex: 1; min-height: 0; }
   .diagram-pane { width: clamp(340px, 34vw, 560px); border-right: 1px solid #21262d;
                   background: #0b0e13; overflow: auto; padding: 14px 14px 24px; }
-  .diagram-pane h2 { font-size: 11px; color: #9aa1aa; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .6px; }
-  .cap { font-size: 12px; color: #9aa1aa; margin: 0 0 12px; min-height: 15px; transition: color .2s; }
+  .diagram-pane h2 { font-size: 0.6875rem; color: #9aa1aa; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .6px; }
+  .cap { font-size: 0.75rem; color: #9aa1aa; margin: 0 0 12px; min-height: 0.9375rem; transition: color .2s; }
   .cap.live { color: #58a6ff; font-weight: 500; }
   .arch-card { background: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 8px; }
   .arch-svg { width: 100%; display: block; }
@@ -57,24 +62,24 @@
   details.tool { background: #0f1620; border: 1px solid #21313f; border-radius: 8px; margin: 8px 0; }
   details.tool summary { cursor: pointer; padding: 8px 12px; color: #58a6ff; list-style: none; }
   details.tool summary::-webkit-details-marker { display: none; }
-  details.tool pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 12.5px;
+  details.tool pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 0.78125rem;
                      border-top: 1px solid #21313f; white-space: pre-wrap; word-break: break-word; }
   details.tool pre.result { color: #7ee787; max-height: 260px; overflow-y: auto; }
 
   .line { margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
   .line.result { color: #8b949e; }
   .line.error { color: #f85149; }
-  .line.sandbox { color: #58a6ff; font-size: 12px; opacity: .9; }
-  .line.done { color: #3fb950; font-size: 12px; }
+  .line.sandbox { color: #58a6ff; font-size: 0.75rem; opacity: .9; }
+  .line.done { color: #3fb950; font-size: 0.75rem; }
   .line.error { white-space: pre-wrap; }   /* multi-line stop reasons */
-  .status { color: #8b949e; margin: 8px 0; font-size: 13px; }
+  .status { color: #8b949e; margin: 8px 0; font-size: 0.8125rem; }
   .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid #30363d;
              border-top-color: #58a6ff; border-radius: 50%; animation: spin .8s linear infinite;
              vertical-align: -1px; margin-right: 7px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   form#taskForm { display: flex; gap: 8px; margin-top: 8px; max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
-  #task { flex: 1; resize: none; height: 60px; }
+  #task { flex: 1; resize: none; height: 3.75rem; }
 
   @media (max-width: 940px) { .diagram-pane { display: none; } }
 </style>
