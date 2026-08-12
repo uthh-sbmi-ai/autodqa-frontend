@@ -121,8 +121,25 @@ function renderEvent(ev) {
     const msg = ev.phase === "up" ? "🖥️ sandbox microVM spinning up" : "🖥️ sandbox microVM released";
     return addLine("sandbox", sid ? `${msg} · ${sid}` : msg);
   }
+  // Terminal event: every run ends with exactly one of these, so "it just stopped"
+  // is never ambiguous. Emitted by entrypoint.py's produce() on every exit path.
+  if (ev.type === "done") {
+    const n = `${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)`;
+    if (ev.reason === "completed") return addLine("done", `\u2713 finished \u00b7 ${n}`);
+    if (ev.reason === "step_limit")
+      return addLine("error",
+        `\u26a0 STOPPED AT STEP LIMIT (${ev.step_limit}) \u00b7 ${n}\n${ev.message || ""}`);
+    if (ev.reason === "truncated")
+      return addLine("error", `\u26a0 RUN TRUNCATED \u00b7 ${n}\n${ev.message || ""}`);
+    if (ev.reason === "cancelled")
+      return addLine("error", `\u26a0 CANCELLED \u00b7 ${n}\n${ev.message || ""}`);
+    return addLine("error", `\u26a0 STOPPED (${ev.reason}) \u00b7 ${n}\n${ev.message || ""}`);
+  }
   const c = ev.content;
-  if (ev.type === "error") return addLine("error", typeof c === "string" ? c : JSON.stringify(c));
+  if (ev.type === "error") {
+    const t = ev.message ?? c;   // produce() sends `message`; the fetch path sends `content`
+    return addLine("error", typeof t === "string" ? t : JSON.stringify(t));
+  }
   if (ev.type === "ToolMessage") {
     const text = Array.isArray(c) ? c.map((b) => b.text || "").join("") : c;
     const card = pendingTools.shift();
