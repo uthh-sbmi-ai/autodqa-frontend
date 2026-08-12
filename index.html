@@ -20,6 +20,16 @@
      always was — the <b> inside keeps its own weight. */
   .title { white-space: nowrap; font-size: inherit; font-weight: 400; margin: 0; }
 
+  /* Skip link: first thing a keyboard reaches, parked off-screen until focused.
+     Not display:none / visibility:hidden — those would take it out of the tab
+     order entirely. Reuses the button green, so it clears 7:1 against white. */
+  .skip-link { position: fixed; top: -6.25rem; left: 0.5rem; z-index: 20;
+               display: inline-flex; align-items: center; min-height: 44px;
+               padding: 8px 14px; border-radius: 6px; background: #1a6327;
+               color: #fff; text-decoration: none; font-size: 0.875rem;
+               transition: top .15s ease; }
+  .skip-link:focus { top: 0.5rem; }
+
   /* login inline in the header, centered between title and model */
   .mid { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
   .login { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -85,6 +95,7 @@
 </style>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
   <header>
     <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
     <span class="mid">
@@ -218,7 +229,9 @@
     <!-- <main>, not a div: the chat column is the primary content, and without a
          landmark its text (the Run button, the task placeholder) sits outside the
          landmark structure entirely. The diagram beside it is <aside>/complementary. -->
-    <main class="chatpanel">
+    <!-- tabindex="-1" so the skip link actually moves focus here; without it the
+         jump is visual only and the next Tab returns to the top of the page. -->
+    <main class="chatpanel" id="main" tabindex="-1">
       <div id="stream"></div>
       <form id="taskForm">
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
