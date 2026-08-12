@@ -34,6 +34,19 @@
   /* The page h1. Reset the UA heading styles so it renders as the header line it
      always was — the <b> inside keeps its own weight. */
   .title { font-size: inherit; font-weight: 400; margin: 0; }
+  .ident { display: flex; flex-direction: column; gap: 1px; }
+  .unit { margin: 0; font-size: 0.6875rem; color: #9aa1aa; letter-spacing: .3px; }
+
+  /* Required footer. Same 44px targets and palette as the global nav. */
+  .sitefoot { display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px;
+              background: #010409; border-top: 1px solid #21262d; padding: 0 16px;
+              font-size: 0.6875rem; color: #9aa1aa; }
+  /* gap, because inline-flex drops the whitespace between its children — without
+     it these read "Content owner:Matthew Decaro" and "Last revisedAugust 12". */
+  .sitefoot > span { display: inline-flex; align-items: center; min-height: 44px; gap: .35em; }
+  .sitefoot a { color: #c9d1d9; text-decoration: none; display: inline-flex;
+                align-items: center; min-height: 44px; min-width: 44px; }
+  .sitefoot a:hover, .sitefoot a:focus { color: #58a6ff; text-decoration: underline; }
 
   /* Visually hidden but still in the accessibility tree — for the announcer.
      Not display:none / visibility:hidden, which would hide it from screen
@@ -156,7 +169,11 @@
   </nav>
 
   <header>
-    <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
+    <!-- Department / unit identification, required in the header by the standards. -->
+    <div class="ident">
+      <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
+      <p class="unit">McWilliams School of Biomedical Informatics · BIG-Arc</p>
+    </div>
     <span class="mid">
       <span class="login" id="login">
         <!-- aria-label, not a placeholder: the placeholder disappears once you type,
@@ -310,6 +327,18 @@
       </form>
     </main>
   </div>
+
+  <!-- Required footer. The revision <time> is rewritten at deploy by
+       stamp_revision.py — keep the id and the element shape, the script matches
+       on them. -->
+  <footer class="sitefoot">
+    <span>Content owner: <a href="mailto:Matthew.Decaro@uth.tmc.edu">Matthew Decaro</a></span>
+    <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
+    <span>Last revised <time id="revdate" datetime="2026-08-12">August 12, 2026</time></span>
+    <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
+    <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
+    <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>
+  </footer>
 
   <script src="config.js"></script>
   <script src="app.js"></script>
