@@ -100,10 +100,13 @@
     <h1 class="title"><b>AutoDQA</b> — data-quality agent</h1>
     <span class="mid">
       <span class="login" id="login">
-        <input id="email" type="email" placeholder="email" autocomplete="username">
-        <input id="password" type="password" placeholder="password" autocomplete="current-password">
+        <!-- aria-label, not a placeholder: the placeholder disappears once you type,
+             so a user tabbing back to check a field would hear nothing. -->
+        <input id="email" type="email" placeholder="email" aria-label="Email" autocomplete="username">
+        <input id="password" type="password" placeholder="password" aria-label="Password" autocomplete="current-password">
         <button id="loginBtn">Sign in</button>
-        <span class="err" id="loginErr"></span>
+        <!-- role="alert" so a failed sign-in is spoken; it was silent before. -->
+        <span class="err" id="loginErr" role="alert"></span>
       </span>
       <span id="who"></span>
     </span>
@@ -113,7 +116,8 @@
   <div id="appBody" hidden>
     <aside class="diagram-pane">
       <h2>Architecture</h2>
-      <p class="cap" id="archStep">The active path lights up as the agent runs.</p>
+      <!-- aria-live so the reason -> act -> observe trace is announced as it changes. -->
+      <p class="cap" id="archStep" aria-live="polite">The active path lights up as the agent runs.</p>
       <div class="arch-card">
         <svg class="arch-svg" viewBox="150 30 550 670" role="img"
              aria-labelledby="archTitle" aria-describedby="archDesc" xmlns="http://www.w3.org/2000/svg">
