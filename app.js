@@ -180,10 +180,6 @@ $("loginBtn").addEventListener("click", async () => {
   if (e.key === "Enter") { e.preventDefault(); $("loginBtn").click(); }
 }));
 
-$("chips").addEventListener("click", (e) => {
-  if (e.target.classList.contains("chip")) { $("task").value = e.target.textContent.trim(); $("task").focus(); }
-});
-
 $("task").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("taskForm").requestSubmit(); }
 });

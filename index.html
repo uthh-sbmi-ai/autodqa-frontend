@@ -7,6 +7,9 @@
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
+  /* The UA's `[hidden] { display: none }` loses to the author `display` rules on
+     #appBody / .login below, which left both permanently visible. */
+  [hidden] { display: none !important; }
   body { margin: 0; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
          background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
   header { padding: 8px 16px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 12px; }
@@ -16,7 +19,7 @@
   /* login inline in the header, centered between title and model */
   .mid { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
   .login { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .login input { padding: 5px 8px; font-size: 12px; width: 150px; }
+  .login input { padding: 5px 8px; font-size: 12px; width: 150px; min-height: 44px; }
   .login button { padding: 5px 10px; font-size: 12px; }
   .login .err { color: #f85149; font-size: 11px; }
   #who { color: #8b949e; font-size: 12px; }
@@ -24,7 +27,10 @@
 
   input, textarea { background: #010409; border: 1px solid #30363d; color: #c9d1d9;
           padding: 8px 10px; border-radius: 6px; font: inherit; }
-  button { background: #238636; border: 0; color: #fff; padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer; }
+  /* 44x44 floor on every button — WCAG 2.5.5 Target Size (Enhanced), which is
+     what SiteImprove's "enhanced size" check enforces. */
+  button { background: #238636; border: 0; color: #fff; padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer;
+           min-height: 44px; min-width: 44px; }
   button:disabled { opacity: .5; cursor: wait; }
 
   /* two-pane body: architecture diagram left, chat right */
@@ -42,11 +48,6 @@
 
   .chatpanel { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 16px; }
   #stream { flex: 1; overflow-y: auto; padding-right: 6px; max-width: 900px; width: 100%; margin: 0 auto; }
-
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-  .chip { background: #161b22; border: 1px solid #30363d; border-radius: 999px;
-          padding: 6px 12px; font-size: 12px; color: #adbac7; cursor: pointer; text-align: left; }
-  .chip:hover { border-color: #58a6ff; color: #c9d1d9; }
 
   .msg { margin: 10px 0; display: flex; }
   .msg.user { justify-content: flex-end; }
@@ -191,14 +192,7 @@
     </aside>
 
     <div class="chatpanel">
-      <div id="stream">
-        <div class="chips" id="chips">
-          <button class="chip" type="button">How many rows are in DEMOGRAPHIC, ENCOUNTER, and DIAGNOSIS?</button>
-          <button class="chip" type="button">Profile DEMOGRAPHIC: row count, null rate per column, and the SEX distribution vs the PCORnet valueset (F, M, A, NI, UN, OT).</button>
-          <button class="chip" type="button">Find SEX values in DEMOGRAPHIC not in the PCORnet valueset, and count rows per invalid value.</button>
-          <button class="chip" type="button">How many DIAGNOSIS rows reference an ENCOUNTERID that does not exist in ENCOUNTER?</button>
-        </div>
-      </div>
+      <div id="stream"></div>
       <form id="taskForm">
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="send" type="submit">Run</button>
