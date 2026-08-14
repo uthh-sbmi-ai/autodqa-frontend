@@ -13,6 +13,26 @@
      (Slate & Sage) renders straight from :root. -->
 <script>try{var p=localStorage.getItem('autodqa-palette');if(p)document.documentElement.setAttribute('data-palette',p);}catch(e){}</script>
 <style>
+  /* ---- Typefaces -----------------------------------------------------------
+     The brand type standards name Lato or Roboto for web pages; SBMI's own site
+     uses Roboto, so we match it. Self-hosted rather than linked from Google:
+     this console otherwise makes no third-party requests, and an authenticated
+     clinical tool phoning a CDN on every load is a dependency worth not having.
+     One 43 KB Apache-2.0 file, variable weight 400-700.
+
+     Monospace is retained where character alignment carries meaning — tool-card
+     SQL and JSON, the task input, and above all the architecture SVG. The SVG's
+     connector-gap mask in <defs> is a set of hand-computed rectangles sized to
+     monospace label widths; a proportional face there would leave the cut-outs
+     misaligned with the text they exist to clear. */
+  @font-face {
+    font-family: 'Roboto';
+    src: url(roboto-latin.woff2) format('woff2');
+    font-weight: 400 700;
+    font-style: normal;
+    font-display: swap;
+  }
+
   /* ---- Brand palettes ------------------------------------------------------
      Three candidates built from the UTHealth Houston brand colours (parsed out
      of UTH-ColorPalette-RGB.ase). Every pair was checked before it landed here:
@@ -47,6 +67,8 @@
   /* The default. Bare :root, so it applies with no attribute and no JS. */
   :root, :root[data-palette="sage"] {
     color-scheme: dark;
+    --font-ui: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --bg: #0D1117; --surface: #010409; --panel: #0B0E13; --card: #12161C; --field: #010409;
     --text: #D6DEDA; --muted: #B2C0BB; --accent: #B2C0BB;
     --rule: #242B2A; --border: #6D8189;
@@ -69,7 +91,7 @@
      the SVG deliberately stays in px: those are viewBox user units that already
      scale with the diagram, and rem there would size the labels independently of
      the boxes they sit in. */
-  body { margin: 0; font: 0.875rem/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  body { margin: 0; font: 0.875rem/1.55 var(--font-ui);
          background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
   /* flex-wrap so the header reflows instead of forcing a 744px page minimum
      (WCAG 1.4.10 Reflow at 320px, and 1.4.4 Resize Text at 200% zoom). */
@@ -166,7 +188,8 @@
   .cap { font-size: 0.75rem; color: var(--muted); margin: 0 0 12px; min-height: 0.9375rem; transition: color .2s; }
   .cap.live { color: var(--accent); font-weight: 500; }
   .arch-card { background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; padding: 8px; }
-  .arch-svg { width: 100%; display: block; }
+  /* pinned: the <defs> gap mask is sized to monospace label widths */
+  .arch-svg { width: 100%; display: block; font-family: var(--font-mono); }
   .anode { transition: opacity .25s ease, filter .25s ease; }
   .arch-svg.running .anode { opacity: .32; }
   .anode.active { opacity: 1 !important; filter: drop-shadow(0 0 6px var(--glow)) brightness(1.4) saturate(1.1); }
@@ -184,11 +207,12 @@
   details.tool summary { cursor: pointer; padding: 8px 12px; color: var(--accent); list-style: none; }
   details.tool summary::-webkit-details-marker { display: none; }
   details.tool pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 0.78125rem;
+                     font-family: var(--font-mono);
                      border-top: 1px solid var(--rule); white-space: pre-wrap; word-break: break-word; }
   details.tool pre.result { color: var(--ok); max-height: 260px; overflow-y: auto; }
 
   .line { margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
-  .line.result { color: var(--muted); }
+  .line.result { color: var(--muted); font-family: var(--font-mono); }
   .line.error { color: var(--err); }
   .line.sandbox { color: var(--accent); font-size: 0.75rem; opacity: .9; }
   .line.done { color: var(--ok); font-size: 0.75rem; }
@@ -200,7 +224,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   form#taskForm { display: flex; gap: 8px; margin-top: 8px; max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
-  #task { flex: 1; resize: none; height: 3.75rem; }
+  #task { flex: 1; resize: none; height: 3.75rem; font-family: var(--font-mono); }
 
   @media (max-width: 940px) { .diagram-pane { display: none; } }
 </style>
@@ -395,7 +419,7 @@
   <footer class="sitefoot">
     <span>Content owner: <a href="mailto:big.arc@uth.tmc.edu">BIG-Arc</a></span>
     <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
-    <span>Last revised <time id="revdate" datetime="2026-08-12">August 12, 2026</time></span>
+    <span>Last revised <time id="revdate" datetime="2026-08-14">August 14, 2026</time></span>
     <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>

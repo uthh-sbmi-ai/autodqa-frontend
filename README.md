@@ -15,6 +15,9 @@ Cloudflare Access); previously hosted on AWS CloudFront + S3.
 - `uth_logo.svg` — the UTHealth Houston logo signature, required by the
   institutional web standards. Referenced by `index.html`, so it has to ship
   with it.
+- `roboto-latin.woff2` — Roboto, the typeface the brand type standards name for
+  web pages. Self-hosted rather than loaded from Google Fonts, so the console
+  makes no third-party requests. Apache-2.0; ships with `index.html`.
 
 The footer carries a revision date required by the web standards. It is stamped
 by `frontend/stamp_revision.py` in the upstream repo, run immediately before the
