@@ -6,6 +6,20 @@
 const CFG = window.AUTODQA_CONFIG;
 let accessToken = null;
 
+// ---- Conversation identity --------------------------------------------------
+// One id per conversation, used as BOTH the AgentCore session id (which pins the
+// session's microVM) and the checkpointer's thread id. The agent's memory lives in
+// that microVM's RAM, so the id is the only handle we need — no transcript is
+// uploaded, and nothing is stored anywhere durable.
+//
+// It is regenerated on sign-in and on "New chat". Ending a conversation is
+// best-effort from here (see endConversation); the guarantee is the runtime's idle
+// timeout, which terminates the microVM and takes the state with it whether or not
+// the browser ever says goodbye.
+let conversationId = null;
+
+const newConversationId = () => "web-" + crypto.randomUUID();   // >=33 chars, as the runtime requires
+
 const $ = (id) => document.getElementById(id);
 
 // ---- Cognito USER_PASSWORD_AUTH (unauthenticated Cognito API, browser-callable) ----
@@ -36,9 +50,11 @@ async function invoke(task, onEvent) {
     headers: {
       "Authorization": `Bearer ${accessToken}`,
       "Content-Type": "application/json",
-      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": "web-" + crypto.randomUUID(),
+      // Stable across the conversation: this is what routes every turn back to the
+      // same session microVM, where the checkpointer's thread lives.
+      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": conversationId,
     },
-    body: JSON.stringify({ task }),
+    body: JSON.stringify({ task, conversation: conversationId }),
   });
   if (!res.ok) { onEvent({ type: "error", content: `HTTP ${res.status}: ${await res.text()}` }); return; }
 
@@ -140,7 +156,10 @@ function renderEvent(ev) {
   // Terminal event: every run ends with exactly one of these, so "it just stopped"
   // is never ambiguous. Emitted by entrypoint.py's produce() on every exit path.
   if (ev.type === "done") {
-    const n = `${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)`;
+    // Report replayed turns too: continuity is otherwise invisible, so "did it
+    // actually still have my context?" would be unanswerable from the UI.
+    const carried = ev.thread_messages ? ` \u00b7 ${ev.thread_messages} message(s) in context` : "";
+    const n = `${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}`;
     if (ev.reason === "completed") {
       announce(`Run finished. ${n}.`);
       return addLine("done", `\u2713 finished \u00b7 ${n}`);
@@ -207,6 +226,7 @@ $("loginBtn").addEventListener("click", async () => {
     $("login").hidden = true;             // hide the header login form
     $("appBody").hidden = false;          // reveal the diagram + chat
     $("who").textContent = $("email").value.trim();
+    conversationId = newConversationId();
     $("task").focus();
   } catch (e) {
     $("loginErr").textContent = e.message;
@@ -231,6 +251,7 @@ $("taskForm").addEventListener("submit", async (e) => {
   addBubble("user", task);
   $("task").value = "";
   $("send").disabled = true;
+  $("newChat").disabled = true;   // clearing mid-run would strand the stream
   setTrace([]);
   const status = document.createElement("div");
   status.className = "status";
@@ -246,6 +267,45 @@ $("taskForm").addEventListener("submit", async (e) => {
     status.remove();
     setTrace([]);
     $("send").disabled = false;
+    $("newChat").disabled = false;
     $("task").focus();
   }
 });
+
+// Ask the runtime to drop a conversation's thread now rather than waiting for the
+// idle timeout. `keepalive` is what lets this survive the page going away — a normal
+// fetch is cancelled on unload, and sendBeacon cannot carry the Authorization header.
+// Best-effort by nature: a crash, a dead network or a sleeping laptop all skip it,
+// which is why the runtime's idle timeout is the actual guarantee.
+function endConversation(id) {
+  if (!id || !accessToken) return;
+  const escaped = encodeURIComponent(CFG.runtimeArn);
+  try {
+    fetch(`https://bedrock-agentcore.${CFG.region}.amazonaws.com/runtimes/${escaped}/invocations?qualifier=DEFAULT`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": id,
+      },
+      body: JSON.stringify({ action: "end_session", conversation: id }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch (e) { /* unload path — nothing useful to do */ }
+}
+
+// Start over: purge the thread the agent is holding, then open a new one, so what
+// the user sees and what the agent remembers stay in step.
+$("newChat").addEventListener("click", () => {
+  endConversation(conversationId);
+  conversationId = newConversationId();
+  pendingTools.length = 0;
+  $("stream").replaceChildren();
+  setTrace([]);
+  announce("New conversation started. The agent no longer has the previous context.");
+  $("task").focus();
+});
+
+// Tab close / navigation away — the way sessions actually end. pagehide fires in
+// cases beforeunload does not (notably the bfcache and mobile Safari).
+window.addEventListener("pagehide", () => endConversation(conversationId));

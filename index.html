@@ -179,6 +179,10 @@
   button { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--btn-text); padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer;
            min-height: 44px; min-width: 44px; }
   button:disabled { opacity: .5; cursor: wait; }
+  /* Secondary action: same 44px target and border weight as Run, but a neutral
+     fill so it does not compete with the primary action. --text on --card is the
+     body-copy pair, so it carries the same contrast the rest of the page does. */
+  #newChat { background: var(--card); border-color: var(--border); color: var(--text); }
 
   /* two-pane body: architecture diagram left, chat right */
   #appBody { display: flex; flex: 1; min-height: 0; }
@@ -409,6 +413,9 @@
       <form id="taskForm">
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="send" type="submit">Run</button>
+        <!-- The agent's context IS the client-side history array, so this clears
+             both it and the transcript together — see app.js. -->
+        <button id="newChat" type="button">New chat</button>
       </form>
     </main>
   </div>
@@ -419,7 +426,7 @@
   <footer class="sitefoot">
     <span>Content owner: <a href="mailto:big.arc@uth.tmc.edu">BIG-Arc</a></span>
     <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
-    <span>Last revised <time id="revdate" datetime="2026-08-14">August 14, 2026</time></span>
+    <span>Last revised <time id="revdate" datetime="2026-08-21">August 21, 2026</time></span>
     <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>
