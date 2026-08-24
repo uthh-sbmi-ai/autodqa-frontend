@@ -183,6 +183,11 @@
      fill so it does not compete with the primary action. --text on --card is the
      body-copy pair, so it carries the same contrast the rest of the page does. */
   #newChat { background: var(--card); border-color: var(--border); color: var(--text); }
+  /* Reads as an interrupt without reading as a failure: --err carries it, but on the
+     card fill rather than as a filled red button, so it does not shout during every
+     run it is visible for. */
+  #stopBtn { background: var(--card); border-color: var(--err); color: var(--err); }
+  #stopBtn:disabled { opacity: .5; cursor: default; }
 
   /* two-pane body: architecture diagram left, chat right */
   #appBody { display: flex; flex: 1; min-height: 0; }
@@ -220,6 +225,8 @@
   .line.error { color: var(--err); }
   .line.sandbox { color: var(--accent); font-size: 0.75rem; opacity: .9; }
   .line.done { color: var(--ok); font-size: 0.75rem; }
+  /* A user-requested stop is an outcome, not an error — muted, not red. */
+  .line.stopped { color: var(--muted); font-size: 0.75rem; }
   .line.phase { color: var(--accent); font-size: 0.8125rem; margin-top: 14px; font-weight: 500; }
   .line.error { white-space: pre-wrap; }   /* multi-line stop reasons */
   /* End-of-phase report. Deliberately heavier than a chat bubble -- it is the
@@ -500,6 +507,9 @@
         <!-- The agent's context IS the client-side history array, so this clears
              both it and the transcript together — see app.js. -->
         <button id="newChat" type="button">New chat</button>
+        <!-- The only control that stays live during a run. type="button" so it can
+             never submit the form it sits in. -->
+        <button id="stopBtn" type="button" hidden>Stop</button>
       </form>
     </main>
 

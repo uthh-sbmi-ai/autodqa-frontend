@@ -42,19 +42,51 @@ async function login(email, password) {
 }
 
 // ---- Direct streaming invoke of the runtime (SSE over fetch) ----
-async function invoke(body, onEvent) {
-  const escaped = encodeURIComponent(CFG.runtimeArn);
-  const url = `https://bedrock-agentcore.${CFG.region}.amazonaws.com/runtimes/${escaped}/invocations?qualifier=DEFAULT`;
-  const res = await fetch(url, {
+const runtimeUrl = () =>
+  `https://bedrock-agentcore.${CFG.region}.amazonaws.com/runtimes/` +
+  `${encodeURIComponent(CFG.runtimeArn)}/invocations?qualifier=DEFAULT`;
+
+const runtimeHeaders = () => ({
+  "Authorization": `Bearer ${accessToken}`,
+  "Content-Type": "application/json",
+  // Stable across the conversation: this is what routes every turn back to the same
+  // session microVM, where the checkpointer's thread and the issue list live -- and
+  // what lets a stop request find the process running the job.
+  "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": conversationId,
+});
+
+// Aborts the CURRENT streaming read. This ends only the browser's side of it; the
+// server-side stop is a separate request (see the Stop button), because a client
+// disconnect is not a signal we can rely on reaching the runtime promptly.
+let currentAbort = null;
+function abortStream() {
+  try { if (currentAbort) currentAbort.abort(); } catch (e) { /* already gone */ }
+}
+
+// A short, non-streaming invoke for control actions. Returns the parsed events
+// rather than a stream, since these replies are one line long.
+async function controlInvoke(body) {
+  const res = await fetch(runtimeUrl(), {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      // Stable across the conversation: this is what routes every turn back to the
-      // same session microVM, where the checkpointer's thread lives.
-      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": conversationId,
-    },
+    headers: runtimeHeaders(),
     body: JSON.stringify({ ...body, conversation: conversationId }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
+  return text.split("\n").reduce((acc, line) => {
+    const t = line.trim();
+    if (t.startsWith("data:")) { try { acc.push(JSON.parse(t.slice(5).trim())); } catch (e) { /* skip */ } }
+    return acc;
+  }, []);
+}
+
+async function invoke(body, onEvent) {
+  currentAbort = new AbortController();
+  const res = await fetch(runtimeUrl(), {
+    method: "POST",
+    headers: runtimeHeaders(),
+    body: JSON.stringify({ ...body, conversation: conversationId }),
+    signal: currentAbort.signal,
   });
   if (!res.ok) { onEvent({ type: "error", content: `HTTP ${res.status}: ${await res.text()}` }); return; }
 
@@ -413,9 +445,14 @@ function renderEvent(ev) {
       announce(`Run finished. ${n}.`);
       return addLine("done", `\u2713 finished \u00b7 ${n}`);
     }
+    // A run the user stopped is not a failure, and styling it as one trains people
+    // to ignore the red lines that do matter.
+    if (ev.reason === "cancelled") {
+      announce(`Run stopped. ${n}.`);
+      return addLine("stopped", `\u23f9 stopped \u00b7 ${n}`);
+    }
     const why = ev.reason === "step_limit" ? `STOPPED AT STEP LIMIT (${ev.step_limit})`
               : ev.reason === "truncated"  ? "RUN TRUNCATED"
-              : ev.reason === "cancelled"  ? "CANCELLED"
               : `STOPPED (${ev.reason})`;
     announce(`Run stopped. ${why}. ${n}. ${ev.message || ""}`);
     return addLine("error", `\u26a0 ${why} \u00b7 ${n}\n${ev.message || ""}`);
@@ -497,10 +534,14 @@ $("task").addEventListener("keydown", (e) => {
 // Both phases are the same endpoint, the same stream and the same controls-locked
 // window; only the payload differs. Keeping one runner means the busy state cannot
 // be right for a discovery turn and wrong for an investigation batch.
+let stopWatchdog = null;
+
 async function runAgent(body, running) {
   runBusy = true;
   $("send").disabled = true;
   $("newChat").disabled = true;   // clearing mid-run would strand the stream
+  $("stopBtn").hidden = false;    // the only control that stays live during a run
+  $("stopBtn").disabled = false;
   refreshTriage();                // locks the checkboxes and the investigate button
   setTrace([]);
   const status = document.createElement("div");
@@ -511,10 +552,16 @@ async function runAgent(body, running) {
   try {
     await invoke(body, renderEvent);
   } catch (e) {
-    announce("Error. " + String(e));
-    addLine("error", String(e));
+    // An abort is the user pressing Stop, not a failure. The run's own `done`
+    // event may or may not have arrived first, depending on which side won.
+    if (e && e.name === "AbortError") addLine("stopped", "\u23f9 stream closed locally.");
+    else { announce("Error. " + String(e)); addLine("error", String(e)); }
   } finally {
     runBusy = false;
+    clearTimeout(stopWatchdog);
+    stopWatchdog = null;
+    currentAbort = null;
+    $("stopBtn").hidden = true;
     status.remove();
     setTrace([]);
     $("issuesCap").textContent = ISSUES_CAP_DEFAULT;
@@ -549,6 +596,50 @@ $("investigateBtn").addEventListener("click", async () => {
   await runAgent({ action: "investigate", selected },
                  `investigation: working ${selected.length} issue(s)…`);
   $("task").focus();
+});
+
+// Stop. Two layers, because they carry different guarantees:
+//
+//   1. The server-side cancel. A second invoke on the SAME session id lands in the
+//      same microVM -- the property the checkpointer already relies on -- where the
+//      runtime cancels the asyncio task running the job. That interrupts it even
+//      mid-tool-call, and the run tears its own sandbox down on the way out.
+//   2. Aborting our read of the stream. Instant and always available, but it only
+//      ends the browser's side; on its own the agent would keep going server-side.
+//
+// So we ask the server first and only fall back to (2). The reply says whether the
+// cancel actually found the running task, which is the one thing we must not guess
+// about: "I pressed stop and nothing happened" and "the stop reached a different
+// instance" look identical from here otherwise.
+$("stopBtn").addEventListener("click", async () => {
+  if (!runBusy) return;
+  $("stopBtn").disabled = true;
+  addLine("stopped", "\u23f9 stop requested\u2026");
+  announce("Stop requested.");
+
+  let events = [];
+  try {
+    events = await controlInvoke({ action: "stop" });
+  } catch (e) {
+    addLine("error", "Could not reach the runtime to stop the run: " + e.message);
+  }
+  const landed = events.some((x) => x.type === "stopping" && x.found);
+
+  if (!landed) {
+    addLine("error", "The stop did not reach the process running this job — the request "
+                   + "was routed elsewhere, or the run had already finished. Closing the "
+                   + "stream locally; if it was still running it will keep going until it "
+                   + "finishes or the session times out.");
+    return abortStream();
+  }
+  // The cancel landed, so the run should now close its own stream with a
+  // `cancelled` done event. Give it a window, then stop waiting rather than
+  // leaving the UI locked on a stream that is never going to end.
+  stopWatchdog = setTimeout(() => {
+    addLine("error", "The runtime accepted the stop but the stream has not closed. "
+                   + "Closing it locally.");
+    abortStream();
+  }, 15000);
 });
 
 // Ask the runtime to drop a conversation's thread now rather than waiting for the
