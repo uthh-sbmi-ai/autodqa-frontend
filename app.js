@@ -111,6 +111,73 @@ function addToolResult(card, text) {
   card.appendChild(pre); scrollDown();
 }
 
+// ---- Issues panel ----
+// Append-driven: the runtime emits one `issue` event per issue it actually
+// recorded, in order, and never re-emits one. Rejected report_issue calls (a
+// duplicate title, a bad enum, a full list) produce no event, so the panel and
+// the agent's list cannot drift apart. Nothing here is ever rebuilt from a
+// fetch -- there is no endpoint to rebuild it from, by design.
+let issueMax = 10;      // authoritative value arrives on the first event
+let issueCount = 0;
+
+// Every field below is model-authored text, so it is set with textContent and
+// never innerHTML -- a finding that quotes SQL or a column named <b> has to
+// render as characters, not markup.
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function updateIssueCount() {
+  $("issueCount").textContent = `${issueCount}/${issueMax}`;
+  $("issuesEmpty").hidden = issueCount > 0;
+}
+
+function addIssue(issue) {
+  const d = el("details", "issue");
+  const sum = document.createElement("summary");
+  sum.appendChild(el("span", "num", "#" + issue.n));
+  sum.appendChild(el("span", "ttl", issue.title));
+  const meta = el("div", "meta");
+  meta.appendChild(el("span", "sev " + issue.severity, issue.severity));
+  meta.appendChild(el("span", null, issue.dimension));
+  const where = [issue.table, issue.column].filter(Boolean).join(".");
+  if (where) meta.appendChild(el("span", "where", where));
+  sum.appendChild(meta);
+  d.appendChild(sum);
+
+  const dl = document.createElement("dl");
+  const row = (label, value, mono) => {
+    if (!value) return;                 // optional fields collapse rather than show empty
+    dl.appendChild(el("dt", null, label));
+    dl.appendChild(el("dd", mono ? "mono" : null, value));
+  };
+  row("Finding", issue.finding);
+  row("Evidence", issue.evidence, true);
+  row("Recommendation", issue.recommendation);
+  d.appendChild(dl);
+
+  // One open at a time. The column is narrow and evidence blocks are long, so
+  // two open issues push the rest of the list out of view. Done on toggle rather
+  // than with <details name> so it works in browsers without exclusive accordions.
+  d.addEventListener("toggle", () => {
+    if (!d.open) return;
+    $("issues").querySelectorAll("details.issue[open]").forEach((o) => { if (o !== d) o.open = false; });
+  });
+
+  const li = document.createElement("li");
+  li.appendChild(d);
+  $("issues").appendChild(li);
+}
+
+function clearIssues() {
+  $("issues").replaceChildren();
+  issueCount = 0;
+  updateIssueCount();
+}
+
 // ---- Architecture diagram trace (nodes glow along the active path) ----
 const archSvgEl = document.querySelector(".arch-svg");
 const nodeEls = document.querySelectorAll(".anode");
@@ -147,6 +214,16 @@ const pendingTools = [];
 function renderEvent(ev) {
   if (ev.type === "trace") return setTrace(ev.active, ev.label);
   if (ev.type === "heartbeat") return;  // keepalive, nothing to render
+  if (ev.type === "issue") {
+    if (ev.max) issueMax = ev.max;
+    addIssue(ev.issue);
+    issueCount = ev.issue.n;   // the runtime numbers them 1..max, in order
+    updateIssueCount();
+    // Read the title, not the finding: the panel is where the detail belongs,
+    // and the evidence block can be many lines of SQL.
+    announce(`Issue ${ev.issue.n} recorded. ${ev.issue.severity} severity. ${ev.issue.title}`);
+    return;
+  }
   if (ev.type === "sandbox") {
     const sid = (ev.session || "").replace(/^run-/, "").slice(0, 8);
     const msg = ev.phase === "up" ? "🖥️ sandbox microVM spinning up" : "🖥️ sandbox microVM released";
@@ -159,7 +236,13 @@ function renderEvent(ev) {
     // Report replayed turns too: continuity is otherwise invisible, so "did it
     // actually still have my context?" would be unanswerable from the UI.
     const carried = ev.thread_messages ? ` \u00b7 ${ev.thread_messages} message(s) in context` : "";
-    const n = `${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}`;
+    // Reconcile rather than assume: if a rejected call or a dropped event ever put
+    // the panel out of step with the agent's list, the count in the footer is where
+    // it shows up instead of going unnoticed.
+    if (ev.issue_max) issueMax = ev.issue_max;
+    if (typeof ev.issue_count === "number") { issueCount = ev.issue_count; updateIssueCount(); }
+    const listed = ev.issue_count ? ` \u00b7 ${ev.issue_count} issue(s) listed` : "";
+    const n = `${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}${listed}`;
     if (ev.reason === "completed") {
       announce(`Run finished. ${n}.`);
       return addLine("done", `\u2713 finished \u00b7 ${n}`);
@@ -227,6 +310,7 @@ $("loginBtn").addEventListener("click", async () => {
     $("appBody").hidden = false;          // reveal the diagram + chat
     $("who").textContent = $("email").value.trim();
     conversationId = newConversationId();
+    clearIssues();
     $("task").focus();
   } catch (e) {
     $("loginErr").textContent = e.message;
@@ -301,8 +385,9 @@ $("newChat").addEventListener("click", () => {
   conversationId = newConversationId();
   pendingTools.length = 0;
   $("stream").replaceChildren();
+  clearIssues();   // the runtime purges its copy in the same end_session call
   setTrace([]);
-  announce("New conversation started. The agent no longer has the previous context.");
+  announce("New conversation started. The agent no longer has the previous context, and the issue list is empty.");
   $("task").focus();
 });
 

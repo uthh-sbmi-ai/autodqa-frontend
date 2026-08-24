@@ -76,6 +76,12 @@
     --ok: #8FD694; --err: #FF9A92;
     --user-bg: #1B2A33; --user-border: #375059;
     --glow: rgba(178, 192, 187, .85);
+    /* Medium severity. Set on the bare :root ONLY and left out of the two
+       palette blocks above, so all three inherit the one value -- UT gold, which
+       clears 4.5:1 on every --card here and is already the accent in two of
+       them. Sage's --accent equals its --muted, so severity could not be read
+       off accent/muted alone: medium and low would render identically. */
+    --warn: #F4B824;
   }
 
   /* Palette switcher. Stays in the UI; the choice is per-browser, not deployed. */
@@ -230,7 +236,54 @@
   form#taskForm { display: flex; gap: 8px; margin-top: 8px; max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
   #task { flex: 1; resize: none; height: 3.75rem; font-family: var(--font-mono); }
 
-  @media (max-width: 940px) { .diagram-pane { display: none; } }
+  /* Third pane: the issue list. Mirrors .diagram-pane so the body reads as two
+     rails around the conversation rather than three unrelated columns. */
+  .issues-pane { width: clamp(300px, 24vw, 400px); border-left: 1px solid var(--rule);
+                 background: var(--panel); overflow: auto; padding: 14px 14px 24px; }
+  .issues-pane h2 { font-size: 0.6875rem; color: var(--muted); margin: 0 0 4px;
+                    text-transform: uppercase; letter-spacing: .6px;
+                    display: flex; justify-content: space-between; gap: 8px; }
+  /* tabular-nums so the count does not jitter as it climbs */
+  .issues-pane .count { font-variant-numeric: tabular-nums; }
+  .issues-pane .empty { font-size: 0.75rem; color: var(--muted); font-style: italic; margin: 14px 0 0; }
+  ol.issues { list-style: none; margin: 0; padding: 0; }
+  ol.issues li { margin: 0 0 8px; }
+
+  details.issue { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; }
+  details.issue[open] { border-color: var(--border); }
+  details.issue summary { cursor: pointer; padding: 8px 10px; list-style: none;
+                          display: grid; grid-template-columns: auto 1fr; gap: 3px 7px;
+                          align-items: baseline; }
+  details.issue summary::-webkit-details-marker { display: none; }
+  .issue .num { color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; }
+  .issue .ttl { font-weight: 500; word-break: break-word; }
+  .issue .meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px;
+                 align-items: center; font-size: 0.6875rem; color: var(--muted); }
+  .issue .where { font-family: var(--font-mono); }
+  /* currentColor border keeps the chip one hue, so severity survives being read
+     in grayscale or by anyone who cannot separate the reds from the greens. The
+     word is IN the chip for the same reason (WCAG 1.4.1 -- not colour alone). */
+  .sev { border: 1px solid currentColor; border-radius: 999px; padding: 0 6px;
+         font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px; }
+  .sev.high { color: var(--err); }
+  .sev.medium { color: var(--warn); }
+  .sev.low { color: var(--muted); }
+  .issue dl { margin: 0; padding: 0 10px 10px; border-top: 1px solid var(--rule); }
+  .issue dt { font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px;
+              color: var(--muted); margin: 9px 0 3px; }
+  .issue dd { margin: 0; font-size: 0.8125rem; white-space: pre-wrap; word-break: break-word; }
+  .issue dd.mono { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+
+  /* Three columns need more room than two, so the diagram -- explanatory, not
+     the product -- folds away first and earlier than its old 940px. */
+  @media (max-width: 1240px) { .diagram-pane { display: none; } }
+  /* Below this the issues stack UNDER the conversation rather than disappearing:
+     hiding them would drop the run's actual output at small widths. */
+  @media (max-width: 760px) {
+    #appBody { flex-direction: column; }
+    .issues-pane { width: 100%; flex: 0 0 auto; max-height: 45vh;
+                   border-left: none; border-top: 1px solid var(--rule); }
+  }
 </style>
 </head>
 <body>
@@ -418,6 +471,17 @@
         <button id="newChat" type="button">New chat</button>
       </form>
     </main>
+
+    <!-- The findings, itemized. <aside> because it is complementary to the
+         conversation that produced it, and <ol> because the issues are numbered
+         and ordered by when the agent recorded them. Populated only by
+         `issue` events from the runtime -- see renderEvent in app.js. -->
+    <aside class="issues-pane" id="issuesPane" aria-labelledby="issuesHead">
+      <h2 id="issuesHead">Issues <span class="count" id="issueCount">0/10</span></h2>
+      <p class="cap">Distinct data-quality findings the agent has recorded, newest last.</p>
+      <p class="empty" id="issuesEmpty">Nothing recorded yet.</p>
+      <ol class="issues" id="issues"></ol>
+    </aside>
   </div>
 
   <!-- Required footer. The revision <time> is rewritten at deploy by
@@ -426,7 +490,7 @@
   <footer class="sitefoot">
     <span>Content owner: <a href="mailto:big.arc@uth.tmc.edu">BIG-Arc</a></span>
     <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
-    <span>Last revised <time id="revdate" datetime="2026-08-21">August 21, 2026</time></span>
+    <span>Last revised <time id="revdate" datetime="2026-08-24">August 24, 2026</time></span>
     <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>
