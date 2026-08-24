@@ -222,6 +222,23 @@
   .line.done { color: var(--ok); font-size: 0.75rem; }
   .line.phase { color: var(--accent); font-size: 0.8125rem; margin-top: 14px; font-weight: 500; }
   .line.error { white-space: pre-wrap; }   /* multi-line stop reasons */
+  /* End-of-phase report. Deliberately heavier than a chat bubble -- it is the
+     conclusion of the batch, not another message in it -- and full width rather
+     than the 82% a bubble gets, because it is a document rather than a remark. */
+  .report { margin: 18px 0 6px; background: var(--card); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px 14px; }
+  .report h3 { margin: 0; font-size: 0.6875rem; text-transform: uppercase;
+               letter-spacing: .6px; color: var(--muted); font-weight: 500; }
+  .report-item { border-top: 1px solid var(--rule); margin-top: 12px; padding-top: 12px; }
+  .report-item h4 { margin: 0 0 2px; font-size: 0.875rem; font-weight: 500;
+                    display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+  .report-item h4 .num { color: var(--muted); font-family: var(--font-mono); font-size: 0.8125rem; }
+  .report dl { margin: 0; }
+  .report dt { font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px;
+               color: var(--muted); margin: 9px 0 3px; }
+  .report dd { margin: 0; font-size: 0.8125rem; white-space: pre-wrap; word-break: break-word; }
+  .report dd.mono { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
+
   .status { color: var(--muted); margin: 8px 0; font-size: 0.8125rem; }
   .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--rule);
              border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
@@ -275,9 +292,9 @@
      column of identical pills would be noise. */
   .pill { border: 1px solid currentColor; border-radius: 999px; padding: 0 6px;
           font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px; }
-  .issue.s-investigating .pill { color: var(--accent); }
-  .issue.s-explained .pill { color: var(--ok); }
-  .issue.s-inconclusive .pill { color: var(--err); }
+  .s-investigating .pill { color: var(--accent); }
+  .s-explained .pill { color: var(--ok); }
+  .s-inconclusive .pill { color: var(--err); }
   /* Decided against, but kept legible and reachable: the user can still tick it in
      a later round, so this dims rather than hides. */
   .issue.s-ignored { opacity: .55; }

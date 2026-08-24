@@ -111,6 +111,47 @@ function addToolResult(card, text) {
   card.appendChild(pre); scrollDown();
 }
 
+// The end-of-phase report. Rendered from the tickets the runtime sends, so it says
+// exactly what the panel says — this is about WHERE the findings are, not about
+// producing a second, differently-worded account of them.
+//
+// It goes in the message stream rather than the panel on purpose: the panel is the
+// durable record you go to, this is the summary that arrives where you are already
+// looking when the batch ends.
+function addReport(issues) {
+  const box = el("section", "report");
+  box.setAttribute("aria-label", "Investigation report");
+  const n = issues.length;
+  box.appendChild(el("h3", null, `Investigation report \u00b7 ${n} issue${n === 1 ? "" : "s"}`));
+
+  for (const issue of issues) {
+    const item = el("article", "report-item s-" + issue.status);
+    const head = el("h4");
+    head.appendChild(el("span", "num", "#" + issue.n));
+    head.appendChild(el("span", "ttl", issue.title));
+    if (STATUS_LABEL[issue.status]) head.appendChild(el("span", "pill", STATUS_LABEL[issue.status]));
+    item.appendChild(head);
+
+    const rc = issue.root_cause || {};
+    const dl = document.createElement("dl");
+    const row = (label, value, mono) => {
+      if (!value) return;
+      dl.appendChild(el("dt", null, label));
+      dl.appendChild(el("dd", mono ? "mono" : null, value));
+    };
+    // Label the hedge. An unestablished cause presented in the same words as a
+    // proven one is the failure mode worth spending a line of UI on.
+    row(rc.conclusive ? "Root cause" : "Root cause (not established)",
+        rc.root_cause || "No cause was recorded for this issue.");
+    row("Traced to", rc.evidence, true);
+    row("Recommendation", rc.recommendation);
+    item.appendChild(dl);
+    box.appendChild(item);
+  }
+  $("stream").appendChild(box);
+  scrollDown();
+}
+
 // ---- Issues panel ----
 // Event-driven, never rebuilt from a fetch — there is no endpoint to rebuild it
 // from, by design. The runtime emits `issue` when a ticket is created and
@@ -134,6 +175,20 @@ const TRIAGE_ABLE = new Set(["flagged", "ignored"]);
 const STATUS_LABEL = {
   selected: "selected", ignored: "ignored", investigating: "investigating…",
   explained: "root cause found", inconclusive: "inconclusive",
+};
+
+// Sort groups, most actionable first: what the agent is working, then what still
+// needs a decision, then what was passed over. Ordering is by GROUP only — inside a
+// group the issue number decides, so a ticket never moves for any reason the user
+// did not cause, and its position stays predictable across a batch.
+//
+// This is inert during discovery: every ticket is `flagged`, so the sort collapses
+// to ascending by number, which is the order they were appended in anyway. It only
+// does visible work at the moment of triage.
+const SORT_RANK = {
+  selected: 0, investigating: 0, explained: 0, inconclusive: 0,   // the investigation set
+  flagged: 1,                                                     // still awaiting the user
+  ignored: 2,                                                     // passed over
 };
 
 // Every field below is model-authored text, so it is set with textContent and
@@ -212,14 +267,34 @@ function upsertIssue(issue) {
     row.appendChild(el("span", "cb-spacer"));
   }
   const d = issueDetails(issue);
-  d.open = wasOpen;                  // an update must not collapse what the user opened
+  // An update must not collapse what the user opened -- except on the way to
+  // `ignored`, where collapsing is the point: a passed-over issue should not keep
+  // holding open a screenful of evidence above the ones being worked. Reopening it
+  // afterwards still works; nothing here forces it shut again.
+  d.open = wasOpen && issue.status !== "ignored";
   row.appendChild(d);
 
   const li = existing || document.createElement("li");
+  li.dataset.status = issue.status;  // read by reorderIssues
   li.replaceChildren(row);
   if (!existing) { $("issues").appendChild(li); issueEls.set(issue.n, li); }
+  reorderIssues();
   updateIssueCount();
   refreshTriage();
+}
+
+// Reorder the rows in place. appendChild on an element already in the parent MOVES
+// it, so this reshuffles without rebuilding any DOM — an open disclosure stays open
+// and keyboard focus inside a row survives the move.
+//
+// The visible issue number comes from the ticket, not from list position (the <ol>
+// markers are suppressed), so reordering can never renumber anything.
+function reorderIssues() {
+  const ol = $("issues");
+  [...issueEls.entries()]
+    .sort(([an, ali], [bn, bli]) =>
+      (SORT_RANK[ali.dataset.status] ?? 1) - (SORT_RANK[bli.dataset.status] ?? 1) || an - bn)
+    .forEach(([, li]) => ol.appendChild(li));
 }
 
 function updateIssueCount() {
@@ -289,6 +364,17 @@ function renderEvent(ev) {
     // Read the title, not the finding: the panel is where the detail belongs,
     // and the evidence block can be many lines of SQL.
     announce(`Issue ${ev.issue.n} flagged. ${ev.issue.title}`);
+    return;
+  }
+  if (ev.type === "report") {
+    const list = ev.issues || [];
+    if (!list.length) return;
+    addReport(list);
+    const open = list.filter((i) => i.status !== "explained").length;
+    // Announce the shape of the result, not its content -- the report is on screen
+    // and navigable, and reading every root cause aloud would bury the headline.
+    announce(`Investigation report. ${list.length} issue(s)` +
+             (open ? `, ${open} without an established cause.` : ", all explained."));
     return;
   }
   if (ev.type === "issue_update") {
