@@ -398,6 +398,16 @@ function renderEvent(ev) {
     announce(`Issue ${ev.issue.n} flagged. ${ev.issue.title}`);
     return;
   }
+  if (ev.type === "repaired") {
+    // Say so rather than silently redoing work: the agent is about to reissue tool
+    // calls the user already watched it request, and unexplained repetition looks
+    // like a bug.
+    const c = ev.calls;
+    announce(`Recovered ${c} interrupted tool call(s) from the previous run.`);
+    return addLine("stopped",
+      `\u21ba recovered ${c} tool call(s) left unfinished by the previous run \u2014 ` +
+      `they returned no result, so the agent may repeat them.`);
+  }
   if (ev.type === "report") {
     const list = ev.issues || [];
     if (!list.length) return;
