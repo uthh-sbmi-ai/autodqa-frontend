@@ -167,6 +167,7 @@
   /* Border at 3.51:1 against the page (was #30363d at 1.55) — WCAG 1.4.11
      Non-text Contrast. These fields have almost no fill contrast, so the border
      is the only thing identifying them as inputs. */
+  textarea:disabled { opacity: .55; }
   input, textarea { background: var(--field); border: 1px solid var(--border); color: var(--text);
           padding: 8px 10px; border-radius: 6px; font: inherit; }
   /* 44x44 floor on every button — WCAG 2.5.5 Target Size (Enhanced), which is
@@ -178,7 +179,7 @@
      7.45:1 and the fill is free to stay dark. */
   button { background: var(--btn-bg); border: 1px solid var(--btn-border); color: var(--btn-text); padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer;
            min-height: 44px; min-width: 44px; }
-  button:disabled { opacity: .5; cursor: wait; }
+  button:disabled { opacity: .5; cursor: default; }
   /* Secondary action: same 44px target and border weight as Run, but a neutral
      fill so it does not compete with the primary action. --text on --card is the
      body-copy pair, so it carries the same contrast the rest of the page does. */
@@ -248,6 +249,7 @@
   .welcome .example button { flex: none; background: var(--card); border-color: var(--border);
                              color: var(--text); }
   .welcome .foot { margin: 0; font-size: 0.75rem; }
+  .welcome .signin { margin-top: 7px; color: var(--accent); }
 
   /* Hand-off notice at the end of a discovery run. Accent-edged rather than
      bordered like an error: it is an instruction, not a problem. */

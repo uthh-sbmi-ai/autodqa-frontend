@@ -192,6 +192,14 @@ const EXAMPLE_TASK =
   "Profile CDW.dbo.DEMOGRAPHIC for data quality issues, column by column. " +
   "Constrain the profiling to BIRTH_DATE, RACE, SEX and HISPANIC.";
 
+// Drop any existing block first: the welcome is written for the current auth state,
+// so the copy shown before sign-in must not survive it.
+function refreshWelcome() {
+  const existing = $("stream").querySelector(".welcome");
+  if (existing) existing.remove();
+  showWelcome();
+}
+
 function showWelcome() {
   if ($("stream").querySelector(".welcome")) return;   // never two of them
 
@@ -199,8 +207,7 @@ function showWelcome() {
   box.appendChild(el("h2", null, "Profiling the warehouse with AutoDQA"));
   box.appendChild(el("p", null,
     "Name the table you want profiled, and the columns to focus on if you have "
-    + "particular ones in mind. A narrower scope gets further: the agent works within "
-    + "a fixed step budget, so a whole table spends it faster than four columns do."));
+    + "particular ones in mind. Here's an example:"));
 
   // The example is the useful half of any instruction like this, so it is offered as
   // something to edit rather than something to retype. It fills the box; it does not
@@ -226,21 +233,26 @@ function showWelcome() {
   };
   step("Discovery.",
     "The agent profiles the data you named and flags each potential issue it can "
-    + "quantify into the Issues panel on the right. It does not look for causes in this "
-    + "phase and has no access to the ETL code, so what you get is what is wrong, with "
-    + "the counts that show it.");
+    + "identify into the Issues panel on the right.");
   step("Your review.",
     "Tick the issues worth pursuing and press Investigate selected. Anything you leave "
     + "unticked is marked ignored, and can still be picked up later.");
   step("Investigation.",
-    "The agent takes each issue you chose on its own and traces it back to a root cause "
-    + "— in the source data or in the ETL that loaded it — then appends the cause, the "
-    + "code it traced it to, and a suggested fix to that issue's ticket.");
+    "The agent works through each issue that you selected one at a time, tracing the "
+    + "issue back to a root cause — within the source database(s) or in the ETL that "
+    + "loads the data. A report will be presented to you at the end of the session with "
+    + "a list of what issues the agent found and each issue's root cause.");
   box.appendChild(ol);
 
   box.appendChild(el("p", "foot",
     "The warehouse is synthetic — it holds no PHI. Stop ends a run at any point; "
     + "New chat clears the conversation and the issue list."));
+
+  // Rendered before sign-in too, so it has to say what is blocking the Run button.
+  if (!accessToken) {
+    box.appendChild(el("p", "foot signin",
+      "Sign in with the form at the top of the page to run a profiling task."));
+  }
 
   // Prepend: on a fresh conversation the stream is empty, but this way it stays at
   // the top even if anything has already been written there.
@@ -617,17 +629,35 @@ if (paletteSel) {
 // ---- Wiring ----
 if (CFG.model) $("model").textContent = CFG.model;
 
+// The console is shown at page load rather than after sign-in: someone landing here
+// should be able to read what the tool does and what it will ask of them without
+// authenticating first, and the architecture diagram and the empty Issues panel are
+// part of that explanation. Nothing here reaches the runtime.
+//
+// The task form is the one part that cannot work yet -- invoke() would send
+// `Bearer null` -- so it is disabled rather than left to fail on submit.
+function setComposerEnabled(on) {
+  $("task").disabled = !on;
+  $("send").disabled = !on;
+  $("newChat").disabled = !on;
+}
+
+$("appBody").hidden = false;
+setComposerEnabled(false);
+clearIssues();
+showWelcome();
+
 $("loginBtn").addEventListener("click", async () => {
   $("loginErr").textContent = "";
   $("loginBtn").disabled = true;
   try {
     accessToken = await login($("email").value.trim(), $("password").value);
     $("login").hidden = true;             // hide the header login form
-    $("appBody").hidden = false;          // reveal the diagram + chat
     $("who").textContent = $("email").value.trim();
     conversationId = newConversationId();
+    setComposerEnabled(true);
     clearIssues();
-    showWelcome();
+    refreshWelcome();                     // same block, minus the sign-in line
     $("task").focus();
   } catch (e) {
     $("loginErr").textContent = e.message;
@@ -786,7 +816,7 @@ $("newChat").addEventListener("click", () => {
   pendingTools.length = 0;
   $("stream").replaceChildren();
   clearIssues();   // the runtime purges its copy in the same end_session call
-  showWelcome();
+  refreshWelcome();
   setTrace([]);
   announce("New conversation started. The agent no longer has the previous context, and the issue list is empty.");
   $("task").focus();
