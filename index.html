@@ -76,12 +76,6 @@
     --ok: #8FD694; --err: #FF9A92;
     --user-bg: #1B2A33; --user-border: #375059;
     --glow: rgba(178, 192, 187, .85);
-    /* Medium severity. Set on the bare :root ONLY and left out of the two
-       palette blocks above, so all three inherit the one value -- UT gold, which
-       clears 4.5:1 on every --card here and is already the accent in two of
-       them. Sage's --accent equals its --muted, so severity could not be read
-       off accent/muted alone: medium and low would render identically. */
-    --warn: #F4B824;
   }
 
   /* Palette switcher. Stays in the UI; the choice is per-browser, not deployed. */
@@ -226,6 +220,7 @@
   .line.error { color: var(--err); }
   .line.sandbox { color: var(--accent); font-size: 0.75rem; opacity: .9; }
   .line.done { color: var(--ok); font-size: 0.75rem; }
+  .line.phase { color: var(--accent); font-size: 0.8125rem; margin-top: 14px; font-weight: 500; }
   .line.error { white-space: pre-wrap; }   /* multi-line stop reasons */
   .status { color: var(--muted); margin: 8px 0; font-size: 0.8125rem; }
   .spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--rule);
@@ -248,6 +243,21 @@
   .issues-pane .empty { font-size: 0.75rem; color: var(--muted); font-style: italic; margin: 14px 0 0; }
   ol.issues { list-style: none; margin: 0; padding: 0; }
   ol.issues li { margin: 0 0 8px; }
+  /* The checkbox sits beside the disclosure, not inside its <summary>: a control
+     nested in a summary competes with it for clicks and keystrokes. min-width:0 on
+     the details is what lets long titles wrap instead of stretching the row. */
+  .issue-row { display: flex; gap: 8px; align-items: flex-start; }
+  .issue-row > details { flex: 1; min-width: 0; }
+  .issue-row > input[type="checkbox"] { margin: 12px 0 0; width: 18px; height: 18px;
+                                        flex: none; accent-color: var(--btn-border); }
+  /* Keeps decided issues aligned with checkbox-bearing ones, so the list does not
+     ripple sideways as statuses land. */
+  .cb-spacer { width: 18px; flex: none; }
+
+  .triage { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rule); }
+  .triage .cap { margin: 8px 0 0; }
+  #investigateBtn { width: 100%; }
+  #investigateBtn:disabled { opacity: .5; cursor: default; }
 
   details.issue { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; }
   details.issue[open] { border-color: var(--border); }
@@ -260,14 +270,18 @@
   .issue .meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px;
                  align-items: center; font-size: 0.6875rem; color: var(--muted); }
   .issue .where { font-family: var(--font-mono); }
-  /* currentColor border keeps the chip one hue, so severity survives being read
-     in grayscale or by anyone who cannot separate the reds from the greens. The
-     word is IN the chip for the same reason (WCAG 1.4.1 -- not colour alone). */
-  .sev { border: 1px solid currentColor; border-radius: 999px; padding: 0 6px;
-         font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px; }
-  .sev.high { color: var(--err); }
-  .sev.medium { color: var(--warn); }
-  .sev.low { color: var(--muted); }
+  /* Status is text in a bordered pill, never colour alone (WCAG 1.4.1). Only
+     non-default statuses get one -- in discovery every ticket is `flagged`, and a
+     column of identical pills would be noise. */
+  .pill { border: 1px solid currentColor; border-radius: 999px; padding: 0 6px;
+          font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px; }
+  .issue.s-investigating .pill { color: var(--accent); }
+  .issue.s-explained .pill { color: var(--ok); }
+  .issue.s-inconclusive .pill { color: var(--err); }
+  /* Decided against, but kept legible and reachable: the user can still tick it in
+     a later round, so this dims rather than hides. */
+  .issue.s-ignored { opacity: .55; }
+  .issue.s-ignored:hover, .issue.s-ignored:focus-within { opacity: 1; }
   .issue dl { margin: 0; padding: 0 10px 10px; border-top: 1px solid var(--rule); }
   .issue dt { font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px;
               color: var(--muted); margin: 9px 0 3px; }
@@ -478,9 +492,18 @@
          `issue` events from the runtime -- see renderEvent in app.js. -->
     <aside class="issues-pane" id="issuesPane" aria-labelledby="issuesHead">
       <h2 id="issuesHead">Issues <span class="count" id="issueCount">0/10</span></h2>
-      <p class="cap">Distinct data-quality findings the agent has recorded, newest last.</p>
+      <!-- aria-live: during an investigation batch this reports which issue is
+           being worked, which is otherwise only visible in the chat column. -->
+      <p class="cap" id="issuesCap" aria-live="polite">Distinct data-quality findings the agent has recorded, newest last.</p>
       <p class="empty" id="issuesEmpty">Nothing recorded yet.</p>
       <ol class="issues" id="issues"></ol>
+      <!-- The phase gate. Hidden until there is something to triage, and hidden
+           again once every issue has been decided, so the panel is not carrying a
+           dead button through discovery. -->
+      <div class="triage" id="triage" hidden>
+        <button id="investigateBtn" type="button" disabled>Investigate selected</button>
+        <p class="cap">Tick the issues worth a root-cause investigation. The rest are marked ignored.</p>
+      </div>
     </aside>
   </div>
 

@@ -42,7 +42,7 @@ async function login(email, password) {
 }
 
 // ---- Direct streaming invoke of the runtime (SSE over fetch) ----
-async function invoke(task, onEvent) {
+async function invoke(body, onEvent) {
   const escaped = encodeURIComponent(CFG.runtimeArn);
   const url = `https://bedrock-agentcore.${CFG.region}.amazonaws.com/runtimes/${escaped}/invocations?qualifier=DEFAULT`;
   const res = await fetch(url, {
@@ -54,7 +54,7 @@ async function invoke(task, onEvent) {
       // same session microVM, where the checkpointer's thread lives.
       "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": conversationId,
     },
-    body: JSON.stringify({ task, conversation: conversationId }),
+    body: JSON.stringify({ ...body, conversation: conversationId }),
   });
   if (!res.ok) { onEvent({ type: "error", content: `HTTP ${res.status}: ${await res.text()}` }); return; }
 
@@ -112,13 +112,29 @@ function addToolResult(card, text) {
 }
 
 // ---- Issues panel ----
-// Append-driven: the runtime emits one `issue` event per issue it actually
-// recorded, in order, and never re-emits one. Rejected report_issue calls (a
-// duplicate title, a bad enum, a full list) produce no event, so the panel and
-// the agent's list cannot drift apart. Nothing here is ever rebuilt from a
-// fetch -- there is no endpoint to rebuild it from, by design.
-let issueMax = 10;      // authoritative value arrives on the first event
-let issueCount = 0;
+// Event-driven, never rebuilt from a fetch — there is no endpoint to rebuild it
+// from, by design. The runtime emits `issue` when a ticket is created and
+// `issue_update` when its status or root cause changes; a rejected report_issue (a
+// duplicate title, a bad enum, a full list) emits nothing at all, so the panel and
+// the agent's list cannot drift apart.
+// Set for the duration of any run. The panel reads it so checkboxes and the
+// investigate button are inert while the agent is working -- re-triaging mid-batch
+// would desync the user's selection from the work already queued on the server.
+let runBusy = false;
+let issueMax = 10;                 // authoritative value arrives with the first event
+const issueEls = new Map();        // n -> <li>, so an update re-renders that row in place
+const picked = new Set();          // n's the user has ticked but not yet submitted
+
+// Statuses that are still the user's to decide, and so still carry a checkbox.
+// `ignored` stays checkable on purpose: passing on an issue in one round should
+// not be a permanent verdict.
+const TRIAGE_ABLE = new Set(["flagged", "ignored"]);
+// `flagged` gets no pill — during discovery every ticket is flagged, so a column of
+// identical pills would be noise rather than information.
+const STATUS_LABEL = {
+  selected: "selected", ignored: "ignored", investigating: "investigating…",
+  explained: "root cause found", inconclusive: "inconclusive",
+};
 
 // Every field below is model-authored text, so it is set with textContent and
 // never innerHTML -- a finding that quotes SQL or a column named <b> has to
@@ -130,18 +146,13 @@ function el(tag, cls, text) {
   return e;
 }
 
-function updateIssueCount() {
-  $("issueCount").textContent = `${issueCount}/${issueMax}`;
-  $("issuesEmpty").hidden = issueCount > 0;
-}
-
-function addIssue(issue) {
-  const d = el("details", "issue");
+function issueDetails(issue) {
+  const d = el("details", "issue s-" + issue.status);
   const sum = document.createElement("summary");
   sum.appendChild(el("span", "num", "#" + issue.n));
   sum.appendChild(el("span", "ttl", issue.title));
   const meta = el("div", "meta");
-  meta.appendChild(el("span", "sev " + issue.severity, issue.severity));
+  if (STATUS_LABEL[issue.status]) meta.appendChild(el("span", "pill", STATUS_LABEL[issue.status]));
   meta.appendChild(el("span", null, issue.dimension));
   const where = [issue.table, issue.column].filter(Boolean).join(".");
   if (where) meta.appendChild(el("span", "where", where));
@@ -150,32 +161,89 @@ function addIssue(issue) {
 
   const dl = document.createElement("dl");
   const row = (label, value, mono) => {
-    if (!value) return;                 // optional fields collapse rather than show empty
+    if (!value) return;              // optional fields collapse rather than show empty
     dl.appendChild(el("dt", null, label));
     dl.appendChild(el("dd", mono ? "mono" : null, value));
   };
   row("Finding", issue.finding);
   row("Evidence", issue.evidence, true);
-  row("Recommendation", issue.recommendation);
+  const rc = issue.root_cause;
+  if (rc) {
+    // Say so when the agent did not actually establish the cause. Presenting a
+    // hypothesis in the same style as a proven answer is the failure mode worth
+    // spending a line of UI on.
+    row(rc.conclusive ? "Root cause" : "Root cause (not established)", rc.root_cause);
+    row("Traced to", rc.evidence, true);
+    row("Recommendation", rc.recommendation);
+  }
   d.appendChild(dl);
 
-  // One open at a time. The column is narrow and evidence blocks are long, so
-  // two open issues push the rest of the list out of view. Done on toggle rather
-  // than with <details name> so it works in browsers without exclusive accordions.
+  // One open at a time. The column is narrow and evidence blocks are long, so two
+  // open issues push the rest of the list out of view. Done on toggle rather than
+  // with <details name> so it works in browsers without exclusive accordions.
   d.addEventListener("toggle", () => {
     if (!d.open) return;
     $("issues").querySelectorAll("details.issue[open]").forEach((o) => { if (o !== d) o.open = false; });
   });
+  return d;
+}
 
-  const li = document.createElement("li");
-  li.appendChild(d);
-  $("issues").appendChild(li);
+// Create or replace one row. The checkbox sits OUTSIDE the <details> rather than
+// inside its <summary>: a control nested in a summary fights the disclosure for
+// clicks and keystrokes, and screen readers announce the pair ambiguously.
+function upsertIssue(issue) {
+  const existing = issueEls.get(issue.n);
+  const wasOpen = existing ? existing.querySelector("details").open : false;
+
+  const row = el("div", "issue-row");
+  if (TRIAGE_ABLE.has(issue.status)) {
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = picked.has(issue.n);
+    cb.disabled = runBusy;
+    cb.setAttribute("aria-label", `Investigate issue ${issue.n}: ${issue.title}`);
+    cb.addEventListener("change", () => {
+      if (cb.checked) picked.add(issue.n); else picked.delete(issue.n);
+      refreshTriage();
+    });
+    row.appendChild(cb);
+  } else {
+    picked.delete(issue.n);          // no longer the user's to choose
+    row.appendChild(el("span", "cb-spacer"));
+  }
+  const d = issueDetails(issue);
+  d.open = wasOpen;                  // an update must not collapse what the user opened
+  row.appendChild(d);
+
+  const li = existing || document.createElement("li");
+  li.replaceChildren(row);
+  if (!existing) { $("issues").appendChild(li); issueEls.set(issue.n, li); }
+  updateIssueCount();
+  refreshTriage();
+}
+
+function updateIssueCount() {
+  $("issueCount").textContent = `${issueEls.size}/${issueMax}`;
+  $("issuesEmpty").hidden = issueEls.size > 0;
+}
+
+// The triage control only exists while there is something to triage, so the panel
+// is not carrying a dead button through discovery or through a running batch.
+function refreshTriage() {
+  const any = [...issueEls.values()].some((li) => li.querySelector('input[type="checkbox"]'));
+  $("triage").hidden = !any;
+  $("investigateBtn").disabled = runBusy || picked.size === 0;
+  $("investigateBtn").textContent = picked.size
+    ? `Investigate ${picked.size} selected`
+    : "Investigate selected";
 }
 
 function clearIssues() {
   $("issues").replaceChildren();
-  issueCount = 0;
+  issueEls.clear();
+  picked.clear();
   updateIssueCount();
+  refreshTriage();
 }
 
 // ---- Architecture diagram trace (nodes glow along the active path) ----
@@ -183,6 +251,7 @@ const archSvgEl = document.querySelector(".arch-svg");
 const nodeEls = document.querySelectorAll(".anode");
 const archStepEl = $("archStep");
 const ARCH_DEFAULT = "The active path lights up as the agent runs.";
+const ISSUES_CAP_DEFAULT = "Distinct data-quality findings the agent has recorded, newest last.";
 
 function setTrace(active, label) {
   const set = new Set(active || []);
@@ -216,13 +285,23 @@ function renderEvent(ev) {
   if (ev.type === "heartbeat") return;  // keepalive, nothing to render
   if (ev.type === "issue") {
     if (ev.max) issueMax = ev.max;
-    addIssue(ev.issue);
-    issueCount = ev.issue.n;   // the runtime numbers them 1..max, in order
-    updateIssueCount();
+    upsertIssue(ev.issue);
     // Read the title, not the finding: the panel is where the detail belongs,
     // and the evidence block can be many lines of SQL.
-    announce(`Issue ${ev.issue.n} recorded. ${ev.issue.severity} severity. ${ev.issue.title}`);
+    announce(`Issue ${ev.issue.n} flagged. ${ev.issue.title}`);
     return;
+  }
+  if (ev.type === "issue_update") {
+    upsertIssue(ev.issue);
+    return;                    // status churn is visible in the panel; do not narrate every step
+  }
+  if (ev.type === "phase") {
+    if (ev.phase === "idle") { $("issuesCap").textContent = ISSUES_CAP_DEFAULT; return; }
+    if (!ev.issue) return;
+    const where = `${ev.index} of ${ev.total}`;
+    $("issuesCap").textContent = `Investigating #${ev.issue} (${where})…`;
+    announce(`Investigating issue ${ev.issue}, ${where}. ${ev.title}`);
+    return addLine("phase", `\u25b8 investigating #${ev.issue} (${where}) \u00b7 ${ev.title}`);
   }
   if (ev.type === "sandbox") {
     const sid = (ev.session || "").replace(/^run-/, "").slice(0, 8);
@@ -240,9 +319,10 @@ function renderEvent(ev) {
     // the panel out of step with the agent's list, the count in the footer is where
     // it shows up instead of going unnoticed.
     if (ev.issue_max) issueMax = ev.issue_max;
-    if (typeof ev.issue_count === "number") { issueCount = ev.issue_count; updateIssueCount(); }
+    updateIssueCount();
     const listed = ev.issue_count ? ` \u00b7 ${ev.issue_count} issue(s) listed` : "";
-    const n = `${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}${listed}`;
+    const did = ev.phase === "investigation" ? `investigated ${ev.investigated} issue(s) \u00b7 ` : "";
+    const n = `${did}${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}${listed}`;
     if (ev.reason === "completed") {
       announce(`Run finished. ${n}.`);
       return addLine("done", `\u2713 finished \u00b7 ${n}`);
@@ -328,32 +408,61 @@ $("task").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("taskForm").requestSubmit(); }
 });
 
+// Both phases are the same endpoint, the same stream and the same controls-locked
+// window; only the payload differs. Keeping one runner means the busy state cannot
+// be right for a discovery turn and wrong for an investigation batch.
+async function runAgent(body, running) {
+  runBusy = true;
+  $("send").disabled = true;
+  $("newChat").disabled = true;   // clearing mid-run would strand the stream
+  refreshTriage();                // locks the checkboxes and the investigate button
+  setTrace([]);
+  const status = document.createElement("div");
+  status.className = "status";
+  status.innerHTML = '<span class="spinner"></span>' + running;
+  $("stream").appendChild(status); scrollDown();
+  announce(running);   // the spinner is created per run, so it cannot itself be live
+  try {
+    await invoke(body, renderEvent);
+  } catch (e) {
+    announce("Error. " + String(e));
+    addLine("error", String(e));
+  } finally {
+    runBusy = false;
+    status.remove();
+    setTrace([]);
+    $("issuesCap").textContent = ISSUES_CAP_DEFAULT;
+    $("send").disabled = false;
+    $("newChat").disabled = false;
+    // The rows were rendered with disabled checkboxes while runBusy was set; the
+    // run may have ended without an update for every one of them, so re-enable
+    // them directly rather than waiting for a re-render that may not come.
+    document.querySelectorAll('#issues input[type="checkbox"]').forEach((c) => { c.disabled = false; });
+    refreshTriage();
+  }
+}
+
 $("taskForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const task = $("task").value.trim();
   if (!task) return;
   addBubble("user", task);
   $("task").value = "";
-  $("send").disabled = true;
-  $("newChat").disabled = true;   // clearing mid-run would strand the stream
-  setTrace([]);
-  const status = document.createElement("div");
-  status.className = "status";
-  status.innerHTML = '<span class="spinner"></span>agent running…';
-  $("stream").appendChild(status); scrollDown();
-  announce("Agent running.");   // the spinner is created per run, so it cannot itself be live
-  try {
-    await invoke(task, renderEvent);
-  } catch (e) {
-    announce("Error. " + String(e));
-    addLine("error", String(e));
-  } finally {
-    status.remove();
-    setTrace([]);
-    $("send").disabled = false;
-    $("newChat").disabled = false;
-    $("task").focus();
-  }
+  await runAgent({ task }, "discovery: profiling and flagging issues…");
+  $("task").focus();
+});
+
+// Phase 2. The selection goes to the server as issue numbers and the SERVER applies
+// the triage, so what the panel shows and what actually gets worked come from one
+// decision. Everything left unticked is marked ignored there, not here.
+$("investigateBtn").addEventListener("click", async () => {
+  const selected = [...picked].sort((a, b) => a - b);
+  if (!selected.length) return;
+  addBubble("user", `Investigate issue${selected.length > 1 ? "s" : ""} ${selected.map((n) => "#" + n).join(", ")}.`);
+  picked.clear();
+  await runAgent({ action: "investigate", selected },
+                 `investigation: working ${selected.length} issue(s)…`);
+  $("task").focus();
 });
 
 // Ask the runtime to drop a conversation's thread now rather than waiting for the
