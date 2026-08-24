@@ -184,6 +184,103 @@ function addReport(issues) {
   scrollDown();
 }
 
+// Shown at the top of an empty conversation. The console gives no other clue about
+// what the agent expects to be asked for, or that a run stops halfway for the user's
+// judgement — and someone who does not know a second phase is coming reads the end
+// of discovery as the agent giving up early.
+const EXAMPLE_TASK =
+  "Profile CDW.dbo.DEMOGRAPHIC for data quality issues, column by column. " +
+  "Constrain the profiling to BIRTH_DATE, RACE, SEX and HISPANIC.";
+
+function showWelcome() {
+  if ($("stream").querySelector(".welcome")) return;   // never two of them
+
+  const box = el("section", "welcome");
+  box.appendChild(el("h2", null, "Profiling the warehouse with AutoDQA"));
+  box.appendChild(el("p", null,
+    "Name the table you want profiled, and the columns to focus on if you have "
+    + "particular ones in mind. A narrower scope gets further: the agent works within "
+    + "a fixed step budget, so a whole table spends it faster than four columns do."));
+
+  // The example is the useful half of any instruction like this, so it is offered as
+  // something to edit rather than something to retype. It fills the box; it does not
+  // submit, because the table and columns are exactly what the user should change.
+  const ex = el("div", "example");
+  ex.appendChild(el("code", null, EXAMPLE_TASK));
+  const use = el("button", null, "Use this");
+  use.type = "button";
+  use.addEventListener("click", () => {
+    $("task").value = EXAMPLE_TASK;
+    $("task").focus();
+    announce("Example task copied into the box. Edit the table and columns, then press Run.");
+  });
+  ex.appendChild(use);
+  box.appendChild(ex);
+
+  const ol = document.createElement("ol");
+  const step = (name, text) => {
+    const li = document.createElement("li");
+    li.appendChild(el("strong", null, name));
+    li.append(" " + text);
+    ol.appendChild(li);
+  };
+  step("Discovery.",
+    "The agent profiles the data you named and flags each potential issue it can "
+    + "quantify into the Issues panel on the right. It does not look for causes in this "
+    + "phase and has no access to the ETL code, so what you get is what is wrong, with "
+    + "the counts that show it.");
+  step("Your review.",
+    "Tick the issues worth pursuing and press Investigate selected. Anything you leave "
+    + "unticked is marked ignored, and can still be picked up later.");
+  step("Investigation.",
+    "The agent takes each issue you chose on its own and traces it back to a root cause "
+    + "— in the source data or in the ETL that loaded it — then appends the cause, the "
+    + "code it traced it to, and a suggested fix to that issue's ticket.");
+  box.appendChild(ol);
+
+  box.appendChild(el("p", "foot",
+    "The warehouse is synthetic — it holds no PHI. Stop ends a run at any point; "
+    + "New chat clears the conversation and the issue list."));
+
+  // Prepend: on a fresh conversation the stream is empty, but this way it stays at
+  // the top even if anything has already been written there.
+  $("stream").prepend(box);
+}
+
+// The hand-off notice. A discovery run ends at a decision point that is not the
+// agent's to make, and nothing else on screen says so: the run footer reads as
+// "done", and the next control the user needs is in the other column. Spell out
+// what happened and what to do next, at the bottom where they are already reading.
+function addDiscoveryNotice(completed) {
+  // Same rule refreshTriage uses: an issue is actionable exactly when it rendered a
+  // checkbox. Derived from the DOM rather than recounted, so the notice can never
+  // disagree with the panel it is pointing at.
+  const n = document.querySelectorAll('#issues input[type="checkbox"]').length;
+
+  const box = el("aside", "notice");
+  box.appendChild(el("h3", null, completed ? "Discovery phase complete"
+                                           : "Discovery phase ended early"));
+  const p = el("p");
+  if (!n) {
+    p.append("No issues are waiting for a decision. Give the agent another profiling "
+           + "task to look further, or start a new chat.");
+  } else {
+    p.append("Review the ");
+    p.appendChild(el("strong", null, `${n} issue${n === 1 ? "" : "s"}`));
+    p.append(" in the Issues panel, tick the ones worth a root-cause investigation, then press ");
+    p.appendChild(el("strong", null, "Investigate selected"));
+    p.append(" to begin the Investigation phase. Anything left unticked is marked "
+           + "ignored, and can still be picked up in a later round.");
+  }
+  box.appendChild(p);
+  $("stream").appendChild(box);
+  scrollDown();
+  announce(n
+    ? `Discovery ${completed ? "complete" : "ended early"}. ${n} issue(s) awaiting your review. `
+      + "Select the ones to investigate in the Issues panel, then press Investigate selected."
+    : `Discovery ${completed ? "complete" : "ended early"}. No issues are awaiting a decision.`);
+}
+
 // ---- Issues panel ----
 // Event-driven, never rebuilt from a fetch — there is no endpoint to rebuild it
 // from, by design. The runtime emits `issue` when a ticket is created and
@@ -453,19 +550,25 @@ function renderEvent(ev) {
     const n = `${did}${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}${listed}`;
     if (ev.reason === "completed") {
       announce(`Run finished. ${n}.`);
-      return addLine("done", `\u2713 finished \u00b7 ${n}`);
-    }
-    // A run the user stopped is not a failure, and styling it as one trains people
-    // to ignore the red lines that do matter.
-    if (ev.reason === "cancelled") {
+      addLine("done", `\u2713 finished \u00b7 ${n}`);
+    } else if (ev.reason === "cancelled") {
+      // A run the user stopped is not a failure, and styling it as one trains people
+      // to ignore the red lines that do matter.
       announce(`Run stopped. ${n}.`);
-      return addLine("stopped", `\u23f9 stopped \u00b7 ${n}`);
+      addLine("stopped", `\u23f9 stopped \u00b7 ${n}`);
+    } else {
+      const why = ev.reason === "step_limit" ? `STOPPED AT STEP LIMIT (${ev.step_limit})`
+                : ev.reason === "truncated"  ? "RUN TRUNCATED"
+                : `STOPPED (${ev.reason})`;
+      announce(`Run stopped. ${why}. ${n}. ${ev.message || ""}`);
+      addLine("error", `\u26a0 ${why} \u00b7 ${n}\n${ev.message || ""}`);
     }
-    const why = ev.reason === "step_limit" ? `STOPPED AT STEP LIMIT (${ev.step_limit})`
-              : ev.reason === "truncated"  ? "RUN TRUNCATED"
-              : `STOPPED (${ev.reason})`;
-    announce(`Run stopped. ${why}. ${n}. ${ev.message || ""}`);
-    return addLine("error", `\u26a0 ${why} \u00b7 ${n}\n${ev.message || ""}`);
+    // Shown however the run ended, not only on success: a discovery run that was
+    // stopped or truncated can still have flagged issues worth investigating, and
+    // leaving the user to guess whether they may proceed is the worse outcome. The
+    // heading says which happened; the error line above carries the detail.
+    if (ev.phase === "discovery") addDiscoveryNotice(ev.reason === "completed");
+    return;
   }
   const c = ev.content;
   if (ev.type === "error") {
@@ -524,6 +627,7 @@ $("loginBtn").addEventListener("click", async () => {
     $("who").textContent = $("email").value.trim();
     conversationId = newConversationId();
     clearIssues();
+    showWelcome();
     $("task").focus();
   } catch (e) {
     $("loginErr").textContent = e.message;
@@ -682,6 +786,7 @@ $("newChat").addEventListener("click", () => {
   pendingTools.length = 0;
   $("stream").replaceChildren();
   clearIssues();   // the runtime purges its copy in the same end_session call
+  showWelcome();
   setTrace([]);
   announce("New conversation started. The agent no longer has the previous context, and the issue list is empty.");
   $("task").focus();

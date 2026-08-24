@@ -229,6 +229,35 @@
   .line.stopped { color: var(--muted); font-size: 0.75rem; }
   .line.phase { color: var(--accent); font-size: 0.8125rem; margin-top: 14px; font-weight: 500; }
   .line.error { white-space: pre-wrap; }   /* multi-line stop reasons */
+  /* Orientation block at the top of an empty conversation. Sits in the stream and
+     scrolls away with it -- it is the first thing read once, not a permanent
+     fixture competing with the transcript. */
+  .welcome { margin: 4px 0 12px; background: var(--card); border: 1px solid var(--rule);
+             border-radius: 10px; padding: 14px 16px; }
+  .welcome h2 { margin: 0 0 8px; font-size: 0.9375rem; font-weight: 600; }
+  .welcome p { margin: 0 0 10px; font-size: 0.8125rem; color: var(--muted); }
+  .welcome ol { margin: 0 0 10px; padding-left: 20px; font-size: 0.8125rem; color: var(--muted); }
+  .welcome li { margin: 0 0 7px; }
+  .welcome li strong { color: var(--text); font-weight: 600; }
+  /* Wraps at narrow widths rather than squeezing the example into a column of
+     one-word lines. */
+  .welcome .example { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin: 0 0 12px; }
+  .welcome .example code { flex: 1 1 260px; background: var(--field); border: 1px solid var(--rule);
+                           border-radius: 8px; padding: 8px 10px; color: var(--text);
+                           font-family: var(--font-mono); font-size: 0.75rem; }
+  .welcome .example button { flex: none; background: var(--card); border-color: var(--border);
+                             color: var(--text); }
+  .welcome .foot { margin: 0; font-size: 0.75rem; }
+
+  /* Hand-off notice at the end of a discovery run. Accent-edged rather than
+     bordered like an error: it is an instruction, not a problem. */
+  .notice { margin: 14px 0 6px; background: var(--card); border: 1px solid var(--rule);
+            border-left: 3px solid var(--accent); border-radius: 10px; padding: 11px 14px; }
+  .notice h3 { margin: 0 0 4px; font-size: 0.6875rem; text-transform: uppercase;
+               letter-spacing: .6px; color: var(--accent); font-weight: 500; }
+  .notice p { margin: 0; font-size: 0.8125rem; color: var(--muted); }
+  .notice strong { color: var(--text); font-weight: 600; }
+
   /* End-of-phase report. Deliberately heavier than a chat bubble -- it is the
      conclusion of the batch, not another message in it -- and full width rather
      than the 82% a bubble gets, because it is a document rather than a remark. */
