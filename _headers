@@ -3,6 +3,7 @@
 # to the mirror repo along with the rest of the front end.
 
 /*
+  ! Access-Control-Allow-Origin
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-pg01aVt9ReXHMGPS5P9iDH/lc4MBaDyn+8t6C7T5Tio='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src https://cognito-idp.us-east-1.amazonaws.com https://bedrock-agentcore.us-east-1.amazonaws.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'
   X-Content-Type-Options: nosniff
