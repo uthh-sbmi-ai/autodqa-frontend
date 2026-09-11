@@ -110,7 +110,18 @@ async function invoke(body, onEvent) {
 }
 
 // ---- Rendering ----
-function scrollDown() { const s = $("stream"); s.scrollTop = s.scrollHeight; }
+function scrollDown() {
+  const s = $("stream");
+  s.scrollTop = s.scrollHeight;   // app-shell layout: the stream is the scroll box
+  // Reflow layout (narrow window or 200% zoom -- see the media query in index.html):
+  // the stream is not a scroll box, the document scrolls, and the task form is
+  // sticky over its foot. Bring the end of the stream up to just above the form.
+  if (getComputedStyle(s).overflowY !== "visible") return;
+  const form = $("taskForm");
+  const cover = form.hidden ? 0 : form.getBoundingClientRect().height;
+  const bottom = s.getBoundingClientRect().bottom + window.scrollY;
+  window.scrollTo({ top: bottom - window.innerHeight + cover + 16 });
+}
 
 function addBubble(role, text) {
   const m = document.createElement("div"); m.className = "msg " + role;

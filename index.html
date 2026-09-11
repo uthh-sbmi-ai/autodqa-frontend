@@ -351,11 +351,27 @@
   /* Three columns need more room than two, so the diagram -- explanatory, not
      the product -- folds away first and earlier than its old 940px. */
   @media (max-width: 1240px) { .diagram-pane { display: none; } }
-  /* Below this the issues stack UNDER the conversation rather than disappearing:
-     hiding them would drop the run's actual output at small widths. */
-  @media (max-width: 760px) {
+  /* Reflow. Above these thresholds the page is an app shell: body locked to the
+     viewport, the conversation an internal scroll box between fixed chrome. Below
+     them -- a narrow window, or any window at 200% zoom (a 1280x720 laptop becomes
+     640x360; a 1920x1080 display becomes 960x540) -- the required global nav,
+     header and footer wrap onto several rows and consume the viewport, and the
+     conversation, Run button and Issues panel were squeezed to nothing (WCAG
+     1.4.4 Resize Text, 1.4.10 Reflow; accessibility review). So the shell becomes
+     an ordinary scrolling document: everything is its natural height, the page
+     scrolls as a whole, the panes stack, and the task form sticks to the bottom
+     so Run stays reachable while reading. app.js scrollDown() detects this mode
+     from #stream's computed overflow, so the thresholds live only here. */
+  @media (max-width: 900px), (max-height: 640px) {
+    body { height: auto; min-height: 100vh; }
     #appBody { flex-direction: column; }
-    .issues-pane { width: 100%; flex: 0 0 auto; max-height: 45vh;
+    .chatpanel { flex: none; }
+    #stream { flex: none; overflow-y: visible; }
+    form#taskForm { position: sticky; bottom: 0; z-index: 5; background: var(--bg);
+                    padding: 8px 0 12px; margin-top: 0; }
+    /* The issues stack UNDER the conversation rather than disappearing: hiding
+       them would drop the run's actual output. Natural height, no inner scroll. */
+    .issues-pane { width: 100%; flex: none; overflow: visible;
                    border-left: none; border-top: 1px solid var(--rule); }
   }
 </style>
