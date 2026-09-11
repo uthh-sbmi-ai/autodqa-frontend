@@ -158,6 +158,10 @@
   /* login inline in the header, centered between title and model */
   .mid { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; flex-wrap: wrap; }
   .login { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  /* An author `display` beats the UA's `[hidden] { display: none }`, so the login
+     form and the task form each need their own rule for `hidden` to take effect.
+     Scoped rather than a global [hidden] rule: #appBody must stay visible. */
+  .login[hidden] { display: none; }
   .login input { padding: 5px 8px; font-size: 0.75rem; width: 150px; max-width: 100%; min-height: 44px; }
   .login button { padding: 5px 10px; font-size: 0.75rem; }
   .login .err { color: var(--err); font-size: 0.6875rem; }
@@ -284,6 +288,7 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   form#taskForm { display: flex; gap: 8px; margin-top: 8px; max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
+  form#taskForm[hidden] { display: none; }
   #task { flex: 1; resize: none; height: 3.75rem; font-family: var(--font-mono); }
 
   /* Third pane: the issue list. Mirrors .diagram-pane so the body reads as two
@@ -532,7 +537,11 @@
            without a mouse: a long text-only answer contains nothing focusable, so
            there was otherwise no way to read past the fold (WCAG 2.1.1). -->
       <div id="stream" tabindex="0" role="region" aria-label="Conversation"></div>
-      <form id="taskForm">
+      <!-- hidden until sign-in: the controls cannot work without a token, and a
+           visible-but-disabled Run button is a control a keyboard user can see yet
+           never reach. Hiding removes it from the tab order and the accessibility
+           tree together (accessibility review). app.js reveals it after sign-in. -->
+      <form id="taskForm" hidden>
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="send" type="submit">Run</button>
         <!-- The agent's context IS the client-side history array, so this clears

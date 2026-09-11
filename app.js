@@ -214,14 +214,18 @@ function showWelcome() {
   // submit, because the table and columns are exactly what the user should change.
   const ex = el("div", "example");
   ex.appendChild(el("code", null, EXAMPLE_TASK));
-  const use = el("button", null, "Use this");
-  use.type = "button";
-  use.addEventListener("click", () => {
-    $("task").value = EXAMPLE_TASK;
-    $("task").focus();
-    announce("Example task copied into the box. Edit the table and columns, then press Run.");
-  });
-  ex.appendChild(use);
+  // Only once signed in: before that the task box is hidden, so the button would
+  // copy into something the user cannot see. The block is re-rendered on sign-in.
+  if (accessToken) {
+    const use = el("button", null, "Use this");
+    use.type = "button";
+    use.addEventListener("click", () => {
+      $("task").value = EXAMPLE_TASK;
+      $("task").focus();
+      announce("Example task copied into the box. Edit the table and columns, then press Run.");
+    });
+    ex.appendChild(use);
+  }
   box.appendChild(ex);
 
   const ol = document.createElement("ol");
@@ -635,15 +639,17 @@ if (CFG.model) $("model").textContent = CFG.model;
 // part of that explanation. Nothing here reaches the runtime.
 //
 // The task form is the one part that cannot work yet -- invoke() would send
-// `Bearer null` -- so it is disabled rather than left to fail on submit.
-function setComposerEnabled(on) {
-  $("task").disabled = !on;
-  $("send").disabled = !on;
-  $("newChat").disabled = !on;
+// `Bearer null` -- so it is hidden until sign-in. It used to be shown disabled,
+// which the accessibility review flagged: a disabled control is visible yet
+// unreachable by keyboard, so it reads as broken rather than as not-yet-available.
+// Hidden, it leaves the tab order and the accessibility tree together, and the
+// welcome block's sign-in line says what to do instead.
+function setComposerShown(on) {
+  $("taskForm").hidden = !on;
 }
 
 $("appBody").hidden = false;
-setComposerEnabled(false);
+setComposerShown(false);
 clearIssues();
 showWelcome();
 
@@ -655,7 +661,7 @@ $("loginBtn").addEventListener("click", async () => {
     $("login").hidden = true;             // hide the header login form
     $("who").textContent = $("email").value.trim();
     conversationId = newConversationId();
-    setComposerEnabled(true);
+    setComposerShown(true);
     clearIssues();
     refreshWelcome();                     // same block, minus the sign-in line
     $("task").focus();
