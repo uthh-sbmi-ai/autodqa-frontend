@@ -394,7 +394,7 @@ function issueDetails(issue) {
   // with <details name> so it works in browsers without exclusive accordions.
   d.addEventListener("toggle", () => {
     if (!d.open) return;
-    $("issues").querySelectorAll("details.issue[open]").forEach((o) => { if (o !== d) o.open = false; });
+    issuesOl.querySelectorAll("details.issue[open]").forEach((o) => { if (o !== d) o.open = false; });
   });
   return d;
 }
@@ -402,6 +402,15 @@ function issueDetails(issue) {
 // Create or replace one row. The checkbox sits OUTSIDE the <details> rather than
 // inside its <summary>: a control nested in a summary fights the disclosure for
 // clicks and keystrokes, and screen readers announce the pair ambiguously.
+// The list element is built here and is in the DOM only while it has items: an
+// <ol> with no <li> is announced as "list, 0 items" and fails 1.3.1 (SiteImprove:
+// container element is empty). It is inserted ahead of the triage block with the
+// first issue and detached when the panel clears. Held in a const because
+// getElementById cannot find it while it is detached.
+const issuesOl = document.createElement("ol");
+issuesOl.className = "issues";
+issuesOl.id = "issues";
+
 function upsertIssue(issue) {
   const existing = issueEls.get(issue.n);
   const wasOpen = existing ? existing.querySelector("details").open : false;
@@ -433,7 +442,10 @@ function upsertIssue(issue) {
   const li = existing || document.createElement("li");
   li.dataset.status = issue.status;  // read by reorderIssues
   li.replaceChildren(row);
-  if (!existing) { $("issues").appendChild(li); issueEls.set(issue.n, li); }
+  if (!existing) {
+    if (!issuesOl.isConnected) $("triage").before(issuesOl);
+    issuesOl.appendChild(li); issueEls.set(issue.n, li);
+  }
   reorderIssues();
   updateIssueCount();
   refreshTriage();
@@ -446,11 +458,10 @@ function upsertIssue(issue) {
 // The visible issue number comes from the ticket, not from list position (the <ol>
 // markers are suppressed), so reordering can never renumber anything.
 function reorderIssues() {
-  const ol = $("issues");
   [...issueEls.entries()]
     .sort(([an, ali], [bn, bli]) =>
       (SORT_RANK[ali.dataset.status] ?? 1) - (SORT_RANK[bli.dataset.status] ?? 1) || an - bn)
-    .forEach(([, li]) => ol.appendChild(li));
+    .forEach(([, li]) => issuesOl.appendChild(li));
 }
 
 function updateIssueCount() {
@@ -470,7 +481,8 @@ function refreshTriage() {
 }
 
 function clearIssues() {
-  $("issues").replaceChildren();
+  issuesOl.replaceChildren();
+  issuesOl.remove();   // never leave an empty list in the document
   issueEls.clear();
   picked.clear();
   updateIssueCount();
@@ -657,6 +669,7 @@ if (CFG.model) $("model").textContent = CFG.model;
 // welcome block's sign-in line says what to do instead.
 function setComposerShown(on) {
   $("taskForm").hidden = !on;
+  $("taskForm").inert = !on;   // see the markup comment: out of the a11y tree regardless of CSS
 }
 
 $("appBody").hidden = false;

@@ -556,8 +556,10 @@
       <!-- hidden until sign-in: the controls cannot work without a token, and a
            visible-but-disabled Run button is a control a keyboard user can see yet
            never reach. Hiding removes it from the tab order and the accessibility
-           tree together (accessibility review). app.js reveals it after sign-in. -->
-      <form id="taskForm" hidden>
+           tree together (accessibility review). `inert` is belt and braces: it
+           keeps the form out of both even if a stylesheet ever overrode display.
+           app.js lifts both after sign-in. -->
+      <form id="taskForm" hidden inert>
         <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="send" type="submit">Run</button>
         <!-- The agent's context IS the client-side history array, so this clears
@@ -579,7 +581,10 @@
            being worked, which is otherwise only visible in the chat column. -->
       <p class="cap" id="issuesCap" aria-live="polite">Distinct data-quality findings the agent has recorded, newest last.</p>
       <p class="empty" id="issuesEmpty">Nothing recorded yet.</p>
-      <ol class="issues" id="issues"></ol>
+      <!-- The <ol class="issues" id="issues"> is created by app.js and inserted here
+           with the first issue, and detached again when the panel clears: an <ol>
+           with no <li> reads as "list, 0 items" and fails 1.3.1 (SiteImprove:
+           container element is empty), so it never exists while empty. -->
       <!-- The phase gate. Hidden until there is something to triage, and hidden
            again once every issue has been decided, so the panel is not carrying a
            dead button through discovery. -->
@@ -596,7 +601,7 @@
   <footer class="sitefoot">
     <span>Content owner: <a href="mailto:big.arc@uth.tmc.edu">BIG-Arc</a></span>
     <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
-    <span>Last revised <time id="revdate" datetime="2026-09-11">September 11, 2026</time></span>
+    <span>Last revised <time id="revdate" datetime="2026-09-18">September 18, 2026</time></span>
     <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>
