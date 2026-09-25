@@ -196,7 +196,7 @@
 
   /* two-pane body: architecture diagram left, chat right */
   #appBody { display: flex; flex: 1; min-height: 0; }
-  .diagram-pane { width: clamp(340px, 34vw, 560px); border-right: 1px solid var(--rule);
+  .diagram-pane { width: clamp(340px, 37vw, 610px); border-right: 1px solid var(--rule);
                   background: var(--panel); overflow: auto; padding: 14px 14px 24px; }
   .diagram-pane h2 { font-size: 0.6875rem; color: var(--muted); margin: 0 0 4px; text-transform: uppercase; letter-spacing: .6px; }
   .cap { font-size: 0.75rem; color: var(--muted); margin: 0 0 12px; min-height: 0.9375rem; transition: color .2s; }
@@ -427,7 +427,7 @@
       <!-- aria-live so the reason -> act -> observe trace is announced as it changes. -->
       <p class="cap" id="archStep" aria-live="polite">The active path lights up as the agent runs.</p>
       <div class="arch-card">
-        <svg class="arch-svg" viewBox="176 30 550 670" role="img"
+        <svg class="arch-svg" viewBox="176 30 600 670" role="img"
              aria-labelledby="archTitle" aria-describedby="archDesc" xmlns="http://www.w3.org/2000/svg">
           <!-- role="img" collapses the diagram to a single object, so screen readers
                never reach the <text> labels inside it — the description below has to
@@ -454,22 +454,22 @@
           </defs>
 
           <g class="anode" data-id="aigw">
-            <rect x="252" y="40" width="248" height="78" rx="10" style="fill:rgb(42,36,24);stroke:rgb(196,154,78);stroke-width:1.2px"/>
+            <rect x="242" y="40" width="268" height="78" rx="10" style="fill:rgb(42,36,24);stroke:rgb(196,154,78);stroke-width:1.2px"/>
             <text x="376" y="62" text-anchor="middle" dominant-baseline="central" style="fill:rgb(236,214,164);font-size:14px;font-weight:500">Cloudflare AI Gateway</text>
             <text x="376" y="82" text-anchor="middle" dominant-baseline="central" style="fill:rgb(205,174,116);font-size:12px">Access policies · Audit logging</text>
             <text x="376" y="100" text-anchor="middle" dominant-baseline="central" style="fill:rgb(205,174,116);font-size:12px">DLP</text>
           </g>
           <g class="anode" data-id="bedrock">
-            <rect x="578" y="40" width="148" height="78" rx="10" style="fill:rgb(42,32,26);stroke:rgb(204,122,84);stroke-width:1.2px"/>
-            <text x="652" y="62" text-anchor="middle" dominant-baseline="central" style="fill:rgb(238,191,166);font-size:14px;font-weight:500">Amazon Bedrock</text>
-            <text x="652" y="82" text-anchor="middle" dominant-baseline="central" style="fill:rgb(210,150,111);font-size:12px">Model inference</text>
-            <text x="652" y="100" text-anchor="middle" dominant-baseline="central" style="fill:rgb(210,150,111);font-size:12px">HIPAA eligible</text>
+            <rect x="588" y="40" width="176" height="78" rx="10" style="fill:rgb(42,32,26);stroke:rgb(204,122,84);stroke-width:1.2px"/>
+            <text x="676" y="62" text-anchor="middle" dominant-baseline="central" style="fill:rgb(238,191,166);font-size:14px;font-weight:500">Amazon Bedrock</text>
+            <text x="676" y="82" text-anchor="middle" dominant-baseline="central" style="fill:rgb(210,150,111);font-size:12px">Model inference</text>
+            <text x="676" y="100" text-anchor="middle" dominant-baseline="central" style="fill:rgb(210,150,111);font-size:12px">HIPAA eligible</text>
           </g>
-          <line x1="500" y1="72" x2="576" y2="72" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
-          <line x1="576" y1="88" x2="500" y2="88" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
+          <line x1="510" y1="72" x2="586" y2="72" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
+          <line x1="586" y1="88" x2="510" y2="88" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
 
           <g class="anode" data-id="orchestrator">
-            <rect x="252" y="228" width="248" height="80" rx="10" style="fill:rgb(22,48,42);stroke:rgb(62,160,136);stroke-width:1.2px"/>
+            <rect x="242" y="228" width="268" height="80" rx="10" style="fill:rgb(22,48,42);stroke:rgb(62,160,136);stroke-width:1.2px"/>
             <text x="376" y="262" text-anchor="middle" dominant-baseline="central" style="fill:rgb(155,224,203);font-size:14px;font-weight:500">AgentCore Runtime</text>
             <text x="376" y="284" text-anchor="middle" dominant-baseline="central" style="fill:rgb(105,194,170);font-size:12px">LangGraph agent loop</text>
           </g>
@@ -480,7 +480,7 @@
           <line x1="417" y1="120" x2="417" y2="228" marker-end="url(#arrow)" mask="url(#arch-gaps)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
 
           <g class="anode" data-id="broker">
-            <rect x="252" y="396" width="248" height="80" rx="10" style="fill:rgb(23,38,56);stroke:rgb(79,147,207);stroke-width:1.2px"/>
+            <rect x="242" y="396" width="268" height="80" rx="10" style="fill:rgb(23,38,56);stroke:rgb(79,147,207);stroke-width:1.2px"/>
             <text x="376" y="424" text-anchor="middle" dominant-baseline="central" style="fill:rgb(166,206,240);font-size:14px;font-weight:500">AgentCore Gateway</text>
             <text x="376" y="448" text-anchor="middle" dominant-baseline="central" style="fill:rgb(118,174,222);font-size:12px">Tool + dataset allowlists</text>
           </g>
@@ -491,22 +491,22 @@
           <line x1="410" y1="394" x2="410" y2="308" marker-end="url(#arrow)" mask="url(#arch-gaps)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
 
           <g class="anode" data-id="registry">
-            <rect x="578" y="392" width="148" height="50" rx="10" style="fill:rgb(32,32,42);stroke:rgb(74,74,86);stroke-width:1.2px;stroke-dasharray:5px,4px"/>
-            <text x="652" y="417" text-anchor="middle" dominant-baseline="central" style="fill:rgb(212,210,218);font-size:14px;font-weight:500">Dataset Registry</text>
+            <rect x="588" y="392" width="176" height="50" rx="10" style="fill:rgb(32,32,42);stroke:rgb(74,74,86);stroke-width:1.2px;stroke-dasharray:5px,4px"/>
+            <text x="676" y="417" text-anchor="middle" dominant-baseline="central" style="fill:rgb(212,210,218);font-size:14px;font-weight:500">Dataset Registry</text>
           </g>
-          <text x="539" y="410" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">consults</text>
-          <line x1="500" y1="417" x2="576" y2="417" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px;stroke-dasharray:5px,4px"/>
+          <text x="549" y="410" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">consults</text>
+          <line x1="510" y1="417" x2="586" y2="417" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px;stroke-dasharray:5px,4px"/>
 
           <g class="anode" data-id="vault">
-            <rect x="578" y="458" width="148" height="50" rx="10" style="fill:rgb(32,32,42);stroke:rgb(74,74,86);stroke-width:1.2px;stroke-dasharray:5px,4px"/>
-            <text x="652" y="478" text-anchor="middle" dominant-baseline="central" style="fill:rgb(212,210,218);font-size:14px;font-weight:500">Secrets Manager</text>
-            <text x="652" y="494" text-anchor="middle" dominant-baseline="central" style="fill:rgb(138,135,148);font-size:12px">AWS</text>
+            <rect x="588" y="458" width="176" height="50" rx="10" style="fill:rgb(32,32,42);stroke:rgb(74,74,86);stroke-width:1.2px;stroke-dasharray:5px,4px"/>
+            <text x="676" y="478" text-anchor="middle" dominant-baseline="central" style="fill:rgb(212,210,218);font-size:14px;font-weight:500">Secrets Manager</text>
+            <text x="676" y="494" text-anchor="middle" dominant-baseline="central" style="fill:rgb(138,135,148);font-size:12px">AWS</text>
           </g>
-          <text x="539" y="476" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">retrieves</text>
-          <line x1="500" y1="483" x2="576" y2="483" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px;stroke-dasharray:5px,4px"/>
+          <text x="549" y="476" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">retrieves</text>
+          <line x1="510" y1="483" x2="586" y2="483" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px;stroke-dasharray:5px,4px"/>
 
           <g class="anode" data-id="sandbox">
-            <rect x="252" y="556" width="248" height="100" rx="10" style="fill:rgb(32,32,58);stroke:rgb(130,120,216);stroke-width:1.2px"/>
+            <rect x="242" y="556" width="268" height="100" rx="10" style="fill:rgb(32,32,58);stroke:rgb(130,120,216);stroke-width:1.2px"/>
             <text x="376" y="580" text-anchor="middle" dominant-baseline="central" style="fill:rgb(196,188,242);font-size:14px;font-weight:500">Lambda MicroVM sandbox</text>
             <text x="376" y="602" text-anchor="middle" dominant-baseline="central" style="fill:rgb(162,150,214);font-size:12px">Per-session microVM create / delete</text>
             <text x="376" y="620" text-anchor="middle" dominant-baseline="central" style="fill:rgb(162,150,214);font-size:12px">Controlled code execution</text>
@@ -519,21 +519,21 @@
           <line x1="410" y1="554" x2="410" y2="476" marker-end="url(#arrow)" mask="url(#arch-gaps)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
 
           <g class="anode" data-id="cdw">
-            <rect x="578" y="554" width="148" height="56" rx="10" style="fill:rgb(31,42,20);stroke:rgb(118,164,62);stroke-width:1.2px"/>
-            <text x="652" y="574" text-anchor="middle" dominant-baseline="central" style="fill:rgb(191,224,146);font-size:14px;font-weight:500">CDW · SQL Server</text>
-            <text x="652" y="592" text-anchor="middle" dominant-baseline="central" style="fill:rgb(147,187,99);font-size:12px">Read-only</text>
+            <rect x="588" y="554" width="176" height="56" rx="10" style="fill:rgb(31,42,20);stroke:rgb(118,164,62);stroke-width:1.2px"/>
+            <text x="676" y="574" text-anchor="middle" dominant-baseline="central" style="fill:rgb(191,224,146);font-size:14px;font-weight:500">CDW · SQL Server</text>
+            <text x="676" y="592" text-anchor="middle" dominant-baseline="central" style="fill:rgb(147,187,99);font-size:12px">Read-only</text>
           </g>
           <g class="anode" data-id="docstore">
-            <rect x="578" y="634" width="148" height="56" rx="10" style="fill:rgb(32,32,42);stroke:rgb(74,74,86);stroke-width:1.2px"/>
-            <text x="652" y="654" text-anchor="middle" dominant-baseline="central" style="fill:rgb(212,210,218);font-size:14px;font-weight:500">Documentation Store</text>
-            <text x="652" y="672" text-anchor="middle" dominant-baseline="central" style="fill:rgb(138,135,148);font-size:12px">ETL code · docs</text>
+            <rect x="588" y="634" width="176" height="56" rx="10" style="fill:rgb(32,32,42);stroke:rgb(74,74,86);stroke-width:1.2px"/>
+            <text x="676" y="654" text-anchor="middle" dominant-baseline="central" style="fill:rgb(212,210,218);font-size:14px;font-weight:500">Documentation Store</text>
+            <text x="676" y="672" text-anchor="middle" dominant-baseline="central" style="fill:rgb(138,135,148);font-size:12px">ETL code · docs</text>
           </g>
-          <text x="539" y="573" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">5 · T-SQL</text>
-          <line x1="500" y1="590" x2="576" y2="578" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
-          <text x="539" y="619" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">6 · rows</text>
-          <line x1="576" y1="594" x2="500" y2="606" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
-          <text x="539" y="666" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">reads</text>
-          <line x1="500" y1="634" x2="576" y2="658" marker-end="url(#arrow)" mask="url(#arch-gaps)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
+          <text x="549" y="573" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">5 · T-SQL</text>
+          <line x1="510" y1="590" x2="586" y2="578" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
+          <text x="549" y="619" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">6 · rows</text>
+          <line x1="586" y1="594" x2="510" y2="606" marker-end="url(#arrow)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
+          <text x="549" y="666" text-anchor="middle" style="fill:rgb(138,135,148);font-size:12px">reads</text>
+          <line x1="510" y1="634" x2="586" y2="658" marker-end="url(#arrow)" mask="url(#arch-gaps)" style="fill:none;stroke:rgb(116,115,126);stroke-width:1.5px"/>
         </svg>
       </div>
     </aside>
@@ -560,7 +560,12 @@
            keeps the form out of both even if a stylesheet ever overrode display.
            app.js lifts both after sign-in. -->
       <form id="taskForm" hidden inert>
-        <textarea id="task" placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
+        <!-- aria-label, as on the login inputs: a placeholder is not a label -- it
+             vanishes once you type, and the accessibility scan reports the control
+             as unlabelled (SiteImprove, "missing form label"). The placeholder
+             stays as the on-screen hint and is still read alongside the name. -->
+        <textarea id="task" aria-label="Data-quality task for the agent"
+                  placeholder="Give the agent a data-quality task…  (Enter to send, Shift+Enter for newline)"></textarea>
         <button id="send" type="submit">Run</button>
         <!-- The agent's context IS the client-side history array, so this clears
              both it and the transcript together — see app.js. -->
@@ -601,7 +606,7 @@
   <footer class="sitefoot">
     <span>Content owner: <a href="mailto:big.arc@uth.tmc.edu">BIG-Arc</a></span>
     <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
-    <span>Last revised <time id="revdate" datetime="2026-09-18">September 18, 2026</time></span>
+    <span>Last revised <time id="revdate" datetime="2026-09-25">September 25, 2026</time></span>
     <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>
