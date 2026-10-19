@@ -2,11 +2,15 @@
 // sessions (one per table, per run, per condition) and monitors it, following the
 // AutoDQA Evaluation Design doc.
 //
-// DESIGN PREVIEW. There is no harness behind this yet: MockHarness below plays one
-// in the browser so the view can be judged against something that moves. Nothing
-// reaches the runtime and every number it shows is random. A real harness -- the
-// design runs it server-side, through the existing Runtime API -- replaces
-// MockHarness and keeps its event shapes (see the comment on it).
+// Two harnesses behind one monitor. RuntimeHarness runs the evaluation for real:
+// it drives the deployed Runtime from this tab through the same invoke API the
+// chat uses, so every model call goes through the Cloudflare AI Gateway like any
+// other run. It covers what the Runtime can do today -- the reference condition
+// and custom runs, per table or whole warehouse -- and the Runtime fixes the
+// model, prompt, cap and tools. MockHarness plays a run in the browser with
+// random numbers, for judging the design of the experiments the Runtime cannot run
+// yet. The design's eventual harness runs server-side; both keep the event shapes
+// described on MockHarness, so either can be replaced without touching the view.
 //
 // Loaded after app.js and reuses its globals ($, el, announce, CFG). Everything
 // here sits in one function scope: a top-level name that collided with one of
@@ -69,6 +73,25 @@ const REF_PARALLEL = 8;
 
 const AXIS_NAMES = { model: "model", prompt: "prompt", cap: "issue cap", tools: "tools", workflow: "workflow" };
 
+// What a live run can change. Each experiment varies something the deployed
+// Runtime holds fixed (or, for E2's synthesis and chained workflows, needs a
+// harness that is not built), so only the single-condition presets go live, and
+// the settings below are shown as what the Runtime uses rather than offered.
+const LIVE_PRESETS = new Set(["ref", "custom"]);
+const LIVE_WORKFLOWS = new Set(["per_table", "whole"]);
+const LIVE_FIXED = {
+  model: { value: CFG.model, text: `${CFG.model}, set on the deployed Runtime.` },
+  prompt: { value: "deployed", text: "The deployed discovery prompt. It has no Kahn block yet, so it is neither K0 nor K1." },
+  cap: { value: 10, text: "10, set on the deployed Runtime (AUTODQA_MAX_ISSUES)." },
+  tools: { value: "all", text: "All tools. The deployed Runtime cannot withhold one yet." },
+};
+
+// Mean cost of a Sonnet 4.5 discovery session, and of investigating one flag,
+// from the Runtime's token spans since 2026-08-24 at the US-profile rate with no
+// prompt caching. Rough by nature, and only for that model and per-table sessions:
+// a whole-warehouse session has never been measured.
+const COST = { model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", discovery: 1.73, perFlag: 1.79 };
+
 // One entry per experiment in the design doc. `axis` is the setting it varies and
 // `conds` its conditions as [value, short label, long label, ticked by default];
 // `set` is anything else it moves off the reference. E1 and C vary the model over
@@ -115,6 +138,7 @@ const GLYPH = { queued: "○", discovery: "►", investigating: "◆", done: "�
 const ENDED = ["done", "step_limit", "error", "cancelled"];
 
 const fmt = (n) => n.toLocaleString("en-US");
+const usd = (x) => "$" + (x < 100 ? x.toFixed(2) : fmt(Math.round(x)));
 const plural = (n, word, many = word + "s") => `${fmt(n)} ${n === 1 ? word : many}`;
 const sum = (list, k) => list.reduce((a, s) => a + s[k], 0);
 const optText = (id, v) => $(id).querySelector(`option[value="${v}"]`).textContent;
@@ -169,6 +193,70 @@ $("evTablesAll").addEventListener("click", () => {
 });
 
 let preset = "ref";
+let mode = "live";
+
+// Live or simulated. A live run cannot pick what it cannot run, so the presets and
+// workflows it lacks are disabled (and say why in their text), and the settings
+// the Runtime fixes are shown instead of offered. Switching back restores both.
+const presetOpts = [...$("evPreset").options];
+const workflowOpts = [...$("evWorkflow").options];
+for (const o of [...presetOpts, ...workflowOpts]) {
+  o.dataset.text = o.textContent;
+  o.dataset.off = String(o.disabled);
+}
+
+function applyMode(m) {
+  mode = m;
+  const live = m === "live";
+  const gate = (opts, ok) => opts.forEach((o) => {
+    const blocked = live && !ok(o.value) && o.dataset.off === "false";
+    o.disabled = o.dataset.off === "true" || blocked;
+    o.textContent = o.dataset.text + (blocked ? " (simulated only)" : "");
+  });
+  gate(presetOpts, (v) => LIVE_PRESETS.has(v));
+  gate(workflowOpts, (v) => LIVE_WORKFLOWS.has(v));
+  if (live && !LIVE_WORKFLOWS.has($("evWorkflow").value)) $("evWorkflow").value = REFERENCE.workflow;
+
+  $("evModeHelp").textContent = live
+    ? "Every session is a real conversation with the deployed Runtime, so its model calls go through " +
+      "the Cloudflare AI Gateway and are billed. This tab drives the run: keep it open until the run ends."
+    : "Plays a run in this browser with random numbers, for reviewing the design. Nothing is sent anywhere.";
+  $("evNoticeHead").textContent = live ? "Live run" : "Simulated run";
+  $("evNoticeText").textContent = live
+    ? "The console does not reset the warehouse yet: sessions query CDW as it stands, and the snapshot set " +
+      "you name is recorded with the results, not applied. Results stay in this tab until you download them."
+    : "Every number is random and nothing is sent to the runtime.";
+  $("evSnapLbl").textContent = live ? "Snapshot set loaded now" : "Snapshot set";
+  $("evSnapHelp").textContent = live
+    ? "Which set the warehouse holds. Recorded, not applied: reset it with cdw-synthetic before launching."
+    : "The harness resets the warehouse to this set before the first session. The holdout set opens after the freeze.";
+  $("evLaunch").textContent = live ? "Launch live evaluation" : "Launch simulated evaluation";
+
+  if (live && !LIVE_PRESETS.has(preset)) {
+    $("evPreset").value = "ref";
+    applyPreset("ref");
+  } else {
+    syncFields();
+    refresh();
+  }
+}
+
+// Which control each setting shows: its own, the Conditions box when the
+// experiment varies it, or a line naming what the deployed Runtime uses.
+function syncFields() {
+  const axis = PRESETS[preset].axis;
+  document.querySelectorAll(".ev-field[data-axis]").forEach((f) => {
+    const varied = f.dataset.axis === axis;
+    const fixed = mode === "live" && LIVE_FIXED[f.dataset.axis];
+    f.querySelector(".ev-ctl").hidden = varied || !!fixed;
+    f.querySelector(".ev-varied").hidden = !varied;
+    const line = f.querySelector(".ev-fixed");
+    if (line) {
+      line.hidden = !fixed;
+      line.textContent = fixed ? fixed.text : "";
+    }
+  });
+}
 
 // An experiment fills the whole form from the reference, then moves what it
 // moves. Tables, parallelism and the tag are left as they were: they say how to
@@ -187,12 +275,7 @@ function applyPreset(key) {
   $("evRunCount").value = p.runs || REF_RUNS;
   $("evPresetHelp").textContent = p.help;
 
-  // The varied setting's own control gives way to the Conditions box.
-  document.querySelectorAll(".ev-field[data-axis]").forEach((f) => {
-    const varied = f.dataset.axis === p.axis;
-    f.querySelector(".ev-ctl").hidden = varied;
-    f.querySelector(".ev-varied").hidden = !varied;
-  });
+  syncFields();
   $("evConds").hidden = !p.axis;
   $("evModelsField").hidden = p.axis !== "model";
   $("evCondsLegend").textContent = p.axis ? `Conditions · ${AXIS_NAMES[p.axis]}` : "Conditions";
@@ -219,6 +302,7 @@ function readForm() {
     tools: $("evTools").value, workflow: $("evWorkflow").value,
     investigate: $("evInvestigate").checked, snapshot: radio("evSnapshot"),
   };
+  if (mode === "live") for (const [k, { value }] of Object.entries(LIVE_FIXED)) base[k] = value;
   const p = PRESETS[preset];
   let conds;
   if (!p.axis) {
@@ -232,7 +316,7 @@ function readForm() {
     }));
   }
   return {
-    preset, base, conds,
+    mode, preset, base, conds,
     tables: tableBoxes.filter((c) => c.checked).map((c) => c.value),
     runs: Number($("evRunCount").value),
     parallel: Number($("evParallel").value),
@@ -242,6 +326,13 @@ function readForm() {
 
 function problems(f) {
   const p = PRESETS[f.preset];
+  // The options are disabled in live mode, so these only catch a stale form.
+  if (f.mode === "live" && !LIVE_PRESETS.has(f.preset)) {
+    return "Only the reference condition and custom runs can go to the deployed Runtime so far.";
+  }
+  if (f.mode === "live" && !LIVE_WORKFLOWS.has(f.base.workflow)) {
+    return "The synthesis and chained workflows can only be simulated: their harness is not built.";
+  }
   if (!f.conds.length) return p.axis === "model" ? "List at least one model ID." : "Tick at least one condition.";
   // "Pinned by full model ID": an alias or a family name could resolve to a
   // different model next month, and the comparison would quietly change.
@@ -266,7 +357,8 @@ function problems(f) {
 function describeDiff(f) {
   const p = PRESETS[f.preset], b = f.base, out = [];
   if (p.axis !== "model" && b.model !== REFERENCE.model) out.push(`model (${shortModel(b.model) || "blank"})`);
-  if (p.axis !== "prompt" && b.prompt !== REFERENCE.prompt) out.push(`prompt (${b.prompt})`);
+  // A live run's prompt is always the deployed one; the note below says so once.
+  if (f.mode !== "live" && p.axis !== "prompt" && b.prompt !== REFERENCE.prompt) out.push(`prompt (${b.prompt})`);
   if (p.axis !== "cap" && b.cap !== REFERENCE.cap) out.push(`cap (${b.cap})`);
   if (p.axis !== "tools" && b.tools !== REFERENCE.tools) out.push(`tools (${optText("evTools", b.tools)})`);
   if (p.axis !== "workflow" && b.workflow !== REFERENCE.workflow) {
@@ -276,8 +368,9 @@ function describeDiff(f) {
   if (b.snapshot !== REFERENCE.snapshot) out.push(`${b.snapshot} snapshot set`);
   if (f.tables.length !== TABLES.length) out.push(`${f.tables.length} of ${TABLES.length} tables`);
   const lead = p.axis ? `Varies the ${AXIS_NAMES[p.axis]} over ${plural(f.conds.length, "condition")}. ` : "";
-  if (!out.length) return lead + (p.axis ? "Otherwise matches the reference." : "Matches the reference condition.");
-  return lead + `${p.axis ? "Otherwise differs" : "Differs"} from the reference in: ${out.join(", ")}.`;
+  const tail = f.mode === "live" ? " The prompt is the deployed one, not K1." : "";
+  if (!out.length) return lead + (p.axis ? "Otherwise matches the reference." : "Matches the reference condition.") + tail;
+  return lead + `${p.axis ? "Otherwise differs" : "Differs"} from the reference in: ${out.join(", ")}.` + tail;
 }
 
 // The run's size before it starts: sessions, the most flags they can raise, and
@@ -305,6 +398,19 @@ function renderScale(f) {
     strong(plural(flags, "flag")),
     invest ? "; investigating every flag adds up to " : ". Detection only: nothing is investigated.");
   if (invest) box.append(strong(plural(invest, "investigation")), ` of up to ${STEP_LIMIT} steps each.`);
+  const cost = f.mode === "live" && estimate(f);
+  if (cost) {
+    box.append(" Rough cost at past runs' average: about ", strong(usd(cost.discovery)), " for discovery");
+    if (cost.inv) box.append(", plus up to ", strong(usd(cost.inv)), " if every session fills its cap");
+    box.append(".");
+  }
+}
+
+// From COST, so only when every condition is that model, per table.
+function estimate(f) {
+  if (!f.conds.every((c) => c.settings.model === COST.model && c.settings.workflow === "per_table")) return null;
+  const { sessions, invest } = scale(f);
+  return { discovery: sessions * COST.discovery, inv: invest * COST.perFlag };
 }
 
 function refresh() {
@@ -319,24 +425,41 @@ function refresh() {
 }
 
 $("evPreset").addEventListener("change", () => applyPreset($("evPreset").value));
-$("evForm").addEventListener("input", (e) => { if (e.target.id !== "evPreset") refresh(); });
+document.querySelectorAll('input[name="evMode"]').forEach((r) => r.addEventListener("change", () => applyMode(r.value)));
+$("evForm").addEventListener("input", (e) => { if (e.target.id !== "evPreset" && e.target.name !== "evMode") refresh(); });
 $("evForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = readForm();
   const err = problems(f);
   $("evErr").textContent = err;
-  if (!err) launch(f);
+  if (!err && (f.mode !== "live" || confirmLive(f))) launch(f);
 });
+
+// The one step that spends money, so it asks first. A native dialog: it takes
+// focus, traps it, and is announced, with nothing to build.
+function confirmLive(f) {
+  const { sessions } = scale(f);
+  const cost = estimate(f);
+  const money = !cost ? "Each session is billed; there is no measured cost for this configuration yet."
+    : `Rough cost: about ${usd(cost.discovery)}` + (cost.inv ? `, plus up to ${usd(cost.inv)} if every session fills its cap.` : ".");
+  return window.confirm(
+    `Launch a live evaluation?\n\n${plural(sessions, "discovery session")} on the deployed Runtime, ` +
+    `up to ${f.parallel} at a time, each billed through the Cloudflare AI Gateway. ${money}\n\n` +
+    "Keep this tab open until it ends: the tab is what drives the run, and closing it stops it.");
+}
 
 $("evModels").value = CFG.model;
 $("evTag").value = "untagged";
 $("evParallel").value = REF_PARALLEL;
+setRadio("evMode", mode);
 applyPreset("ref");
+applyMode(mode);
 setEvalFormShown(false);
 
 // ---- Evaluations ----------------------------------------------------------------
 // Held in memory only, like the chat. Where runs live durably -- so a monitor can
-// reattach after a reload -- is a question for the real harness.
+// reattach after a reload -- is a question for the server-side harness; until
+// then a live run's results leave this tab only by being downloaded.
 const evals = [];
 const listBtns = new Map();   // evaluation -> its button in the list
 let shown = null;             // the evaluation on screen
@@ -344,10 +467,11 @@ let view = null;              // its DOM handles, rebuilt whenever `shown` chang
 
 function launch(f) {
   const ev = {
-    id: `ev-${evals.length + 1}`, preset: f.preset, f,
-    title: optText("evPreset", f.preset), short: f.preset === "ref" ? "Reference" : f.preset === "custom" ? "Custom" : f.preset,
+    id: `ev-${evals.length + 1}`, mode: f.mode, preset: f.preset, f,
+    title: presetOpts.find((o) => o.value === f.preset).dataset.text,
+    short: f.preset === "ref" ? "Reference" : f.preset === "custom" ? "Custom" : f.preset,
     conds: f.conds.map((c, i) => ({ ...c, key: "c" + i })),
-    status: "resetting", started: Date.now(), ended: null,
+    status: f.mode === "live" ? "running" : "resetting", started: Date.now(), ended: null,
     units: [], sessions: new Map(), log: [],
   };
   // One unit per discovery session the plan needs, keyed cond|run|table, with "*"
@@ -392,8 +516,9 @@ function launch(f) {
   listBtns.set(ev, b);
 
   const conds = Object.fromEntries(ev.conds.map((c) => [c.key, { label: c.label, ...c.settings }]));
-  ev.handle = MockHarness({ units: ev.units, parallel: f.parallel, conds, snapshot: f.base.snapshot },
-                          (e) => onHarnessEvent(ev, e));
+  const harness = f.mode === "live" ? RuntimeHarness : MockHarness;
+  ev.handle = harness({ units: ev.units, parallel: f.parallel, conds, snapshot: f.base.snapshot, tables: f.tables },
+                      (e) => onHarnessEvent(ev, e));
   $("evIntro").hidden = true;
   show(ev);
   announce(`Evaluation ${ev.id} launched: ${plural(ev.units.length, "discovery session")}.`);
@@ -420,7 +545,7 @@ function onHarnessEvent(ev, e) {
 
 function syncList() {
   for (const [ev, b] of listBtns) {
-    b.textContent = `${ev.id} · ${ev.short} · ${STATUS[ev.status].toLowerCase()}`;
+    b.textContent = `${ev.id} · ${ev.short}${ev.mode === "live" ? "" : " (simulated)"} · ${STATUS[ev.status].toLowerCase()}`;
     b.setAttribute("aria-current", String(ev === shown));
   }
 }
@@ -447,6 +572,22 @@ function show(ev) {
   view.stop.addEventListener("click", () => ev.handle.stop());
   head.append(view.title, view.status, view.elapsed, view.stop);
   root.append(head, chips(ev));
+
+  // A live run's findings exist nowhere else once its sessions are purged -- the
+  // Runtime keeps a conversation only in its microVM's memory -- so they can be
+  // saved at any point, partial or not.
+  if (ev.mode === "live") {
+    const bar = el("div", "ev-resultsbar");
+    const note = el("p", null, "Results exist only in this tab until you download them. The file holds every " +
+                               "flag and transcript in full, unredacted, for the scorer.");
+    note.id = `${ev.id}-dlnote`;
+    const dl = el("button", "ev-dl", "Download results (JSON)");
+    dl.type = "button";
+    dl.setAttribute("aria-describedby", note.id);
+    dl.addEventListener("click", () => downloadResults(ev));
+    bar.append(note, dl);
+    root.appendChild(bar);
+  }
 
   // One bar per phase the plan has. Investigation's total is not known up front --
   // it is however many flags discovery raises -- so its bar grows as they land.
@@ -517,14 +658,15 @@ function chips(ev) {
   ul.setAttribute("aria-label", "Settings for this evaluation");
   const b = ev.f.base, axis = PRESETS[ev.preset].axis;
   const add = (text, vary) => ul.appendChild(el("li", vary ? "vary" : null, text));
+  add(ev.mode === "live" ? "Live: deployed Runtime" : "Simulated in this browser");
   if (axis) add(`Varies ${AXIS_NAMES[axis]}: ${ev.conds.map((c) => c.label).join(", ")}`, true);
   if (axis !== "model") add(`Model ${shortModel(b.model)}`);
-  if (axis !== "prompt") add(`Prompt ${b.prompt}`);
+  if (axis !== "prompt") add(b.prompt === "deployed" ? "Deployed prompt" : `Prompt ${b.prompt}`);
   if (axis !== "cap") add(`Cap ${b.cap}`);
   if (axis !== "tools") add(optText("evTools", b.tools));
   if (axis !== "workflow") add(optText("evWorkflow", b.workflow));
   add(b.investigate ? "Every flag investigated" : "Detection only");
-  add(`Snapshot: ${b.snapshot}`);
+  add(`Snapshot: ${b.snapshot}${ev.mode === "live" ? " (recorded, not reset)" : ""}`);
   add(`${ev.f.tables.length} of ${TABLES.length} tables`);
   add(`${plural(ev.f.runs, "run")} per condition`);
   add(`${ev.f.parallel} in parallel`);
@@ -634,7 +776,9 @@ function scoringBox(ev) {
 
 function stateText(s) {
   switch (s.state) {
-    case "discovery": return `discovery ${s.steps}/${STEP_LIMIT}`;
+    // Turns, not graph steps: the Runtime reports each model turn as it lands,
+    // and a turn plus its tool calls is about two of the 250 steps.
+    case "discovery": return `discovery · ${plural(s.turns, "turn")}`;
     case "investigating": return `investigating ${s.invDone}/${s.invTotal}`;
     case "step_limit": return "step limit";
     case "error": return "failed";
@@ -748,7 +892,6 @@ function renderDetail() {
   row("Session", `${ROW_NAMES[s.table] || s.table} · run ${s.run}`);
   if (view.ev.conds.length > 1) row("Condition", c.label);
   row("State", stateText(s));
-  row("Discovery steps", `${s.steps} / ${STEP_LIMIT}`);
   row("Flags", fmt(s.flags));
   if (c.settings.investigate) {
     row("Investigated", `${s.invDone} / ${s.invTotal}` + (s.invLimit ? ` (${s.invLimit} at the step limit)` : ""));
@@ -758,16 +901,348 @@ function renderDetail() {
   row("Elapsed", s.started ? clock((s.ended || Date.now()) - s.started) : "—");
   row("Session ID", s.id || "assigned when it starts", s.id ? "mono" : null);
   box.replaceChildren(dl, el("p", "foot",
-    "Turns and tool calls include the session's investigations. The transcript opens after scoring, " +
-    "with any match to a held-out defect redacted."));
+    "Turns and tool calls include the session's investigations. " + (view.ev.mode === "live"
+      ? "Flag text and the transcript are in the downloaded results, not shown here."
+      : "The transcript opens after scoring, with any match to a held-out defect redacted.")));
+}
+
+// The scorer's input: everything a live run captured, flag text included.
+function downloadResults(ev) {
+  const iso = (t) => (t ? new Date(t).toISOString() : null);
+  const data = {
+    evaluation: ev.id, mode: ev.mode, status: ev.status, started: iso(ev.started), ended: iso(ev.ended),
+    saved: iso(Date.now()), runtime: CFG.runtimeArn, preset: ev.preset, tag: ev.f.tag,
+    settings: ev.f.base, tables: ev.f.tables, runs: ev.f.runs, parallel: ev.f.parallel,
+    conditions: ev.conds.map((c) => ({ key: c.key, label: c.label, settings: c.settings })),
+    sessions: ev.handle.results(),
+  };
+  const stamp = iso(ev.started).slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
+  const a = el("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  a.download = `autodqa-${ev.id}-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  announce(`Results for ${ev.id} downloaded.`);
+}
+
+// Closing the tab ends a live run (see RuntimeHarness), so ask first.
+window.addEventListener("beforeunload", (e) => {
+  if (evals.some((ev) => ev.mode === "live" && ev.status === "running")) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+
+// ---- Shared by both harnesses ---------------------------------------------------
+const newJob = (u) => ({ ...u, state: "queued", result: null, steps: 0, turns: 0, tools: 0, flags: 0,
+                         invDone: 0, invTotal: 0, invLimit: 0, id: null, started: null, ended: null });
+
+const sessionEvent = (j) => ({ type: "session", key: j.key, state: j.state, result: j.result,
+  steps: j.steps, turns: j.turns, tools: j.tools, flags: j.flags, invDone: j.invDone,
+  invTotal: j.invTotal, invLimit: j.invLimit, id: j.id, started: j.started, ended: j.ended });
+
+// Sessions start interleaved -- by position within their run, then run, then
+// condition -- rather than one condition after another, so any drift in the
+// hosted model over the hours a batch takes lands on every condition alike.
+function startOrder(jobs, conds) {
+  const condIndex = Object.fromEntries(Object.keys(conds).map((k, i) => [k, i]));
+  const seen = new Map();
+  return jobs.map((j) => {
+    const g = `${j.cond}|${j.run}`;
+    seen.set(g, (seen.get(g) ?? -1) + 1);
+    return { j, at: seen.get(g) };
+  }).sort((a, b) => a.at - b.at || a.j.run - b.j.run || condIndex[a.j.cond] - condIndex[b.j.cond])
+    .map((x) => x.j);
+}
+
+// How the activity log names a session: "Run 2 · ENCOUNTER".
+function sessionNamer(conds) {
+  const multi = Object.keys(conds).length > 1;
+  const runName = (j) => `${multi ? conds[j.cond].label + " · " : ""}Run ${j.run}`;
+  return { runName, name: (j) => `${runName(j)} · ${ROW_NAMES[j.table] || j.table}` };
+}
+
+// ---- RuntimeHarness ---------------------------------------------------------------
+// The live harness. Each unit is its own conversation with the deployed Runtime,
+// and so its own session microVM: a discovery invoke with the table's task, then,
+// when the condition investigates, one investigate invoke per flag on the same
+// conversation. The session holds its slot through all of them, because the
+// conversation lives in that microVM's memory and the Runtime drops it after 15
+// idle minutes -- investigation cannot wait for the rest of the run, as the design
+// has it. One flag per invoke rather than all of them in one batch: each still
+// gets its own thread and step budget (as in a batch), but a stream cut short
+// loses one investigation instead of the rest of the batch, and the next one
+// does not see the others listed.
+//
+// Everything a session streams -- flags, transcript, the investigation reports --
+// is kept here for results(), and only counts go to the monitor. When a session
+// ends its conversation is purged on the Runtime, so the download is the record.
+//
+// Not covered: resetting the warehouse, the synthesis and chained workflows, and
+// varying the prompt, cap or tools. Each needs a change on the Runtime side.
+function RuntimeHarness(plan, onEvent) {
+  const STOP_GRACE_MS = 15000;   // how long a stopped session gets to say it has stopped
+  const ended = (j) => ENDED.includes(j.state);
+  const jobs = new Map(plan.units.map((u) => [u.key, {
+    ...newJob(u), task: null, issues: new Map(), transcript: [], errors: [],
+    discovery: null, investigations: [], abort: null }]));
+  const order = startOrder([...jobs.values()], plan.conds);
+  const { runName, name } = sessionNamer(plan.conds);
+  const log = (text, bad) => onEvent({ type: "log", text, bad });
+  const emit = (j) => onEvent(sessionEvent(j));
+  const running = new Set();
+  let stopped = false, finished = false;
+
+  // The design doc's per-table task, word for word, so live runs match what will be
+  // frozen. The doc gives no whole-warehouse text; this one follows its pattern.
+  const taskFor = (j) => j.kind === "whole"
+    ? `Assess the data quality of the CDW database: ${plan.tables.map((t) => "CDW.dbo." + t).join(", ")}. ` +
+      "You may query any table or database to check their rows against them."
+    : `Assess the data quality of CDW.dbo.${j.table}. You may query any table or database to check ` +
+      `${j.table}'s rows against them.`;
+
+  const headers = (j, token) => ({
+    "Authorization": `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": j.id,   // pins the session's microVM
+  });
+
+  // One streaming invoke on a session's conversation. Resolves when the stream
+  // ends; the caller checks that a done event arrived.
+  async function call(j, body, onEv) {
+    const token = await freshAccessToken();
+    j.abort = new AbortController();
+    const res = await fetch(runtimeUrl(), {
+      method: "POST",
+      headers: headers(j, token),
+      body: JSON.stringify({ ...body, conversation: j.id }),
+      signal: j.abort.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    const line = (raw) => {
+      const t = raw.trim();
+      if (!t.startsWith("data:")) return;
+      let e;
+      try { e = JSON.parse(t.slice(5).trim()); } catch { return; }
+      onEv(e);    // outside the try: a bug in a handler should surface, not be skipped
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        line(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+      }
+    }
+    line(buf + decoder.decode());
+  }
+
+  // Counts what every phase streams; returns false for events it does not handle.
+  function common(j, phase, e) {
+    if (e.type === "AIMessage") {
+      j.turns++;
+      j.transcript.push({ phase, kind: "ai", content: e.content });
+    } else if (e.type === "ToolMessage") {
+      j.tools++;
+      j.transcript.push({ phase, kind: "tool", content: e.content });
+    } else if (e.type === "error") {
+      j.errors.push({ phase, message: e.message });
+    } else return false;
+    return true;
+  }
+
+  const doneStats = (d) => ({ reason: d.reason, message: d.message ?? null, model_turns: d.model_turns,
+    tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max,
+    thread_messages: d.thread_messages, runtime_session: d.session });
+
+  async function discover(j) {
+    let done = null;
+    await call(j, { task: j.task }, (e) => {
+      if (e.type === "issue") {
+        j.issues.set(e.issue.n, e.issue);
+        j.flags = j.issues.size;
+      } else if (e.type === "done") {
+        done = e;
+        return;
+      } else if (!common(j, "discovery", e)) return;   // trace, heartbeat, sandbox
+      emit(j);
+    });
+    if (!done) throw new Error("the stream ended without saying why");
+    j.discovery = doneStats(done);
+    return { completed: "done", step_limit: "step_limit", cancelled: "cancelled" }[done.reason] || "error";
+  }
+
+  async function investigate(j, n) {
+    let done = null;
+    const phase = `investigation #${n}`;
+    await call(j, { action: "investigate", selected: [n] }, (e) => {
+      if (e.type === "issue_update") j.issues.set(e.issue.n, e.issue);
+      else if (e.type === "report") e.issues.forEach((i) => j.issues.set(i.n, i));
+      else if (e.type === "done") { done = e; return; }
+      else if (!common(j, phase, e)) return;
+      // The Runtime settles a ticket that hit the limit as inconclusive and says so here.
+      if (e.type === "error" && /step limit/.test(e.message)) j.invLimit++;
+      emit(j);
+    });
+    if (!done) throw new Error("the stream ended without saying why");
+    j.investigations.push({ issue: n, ...doneStats(done) });
+    return done.reason;
+  }
+
+  // Best-effort, like the chat's New chat: the idle timeout is the guarantee.
+  async function purge(j) {
+    try {
+      const token = await freshAccessToken();
+      await fetch(runtimeUrl(), { method: "POST", headers: headers(j, token),
+                                  body: JSON.stringify({ action: "end_session", conversation: j.id }) });
+    } catch { /* nothing to do: the Runtime drops it after 15 idle minutes anyway */ }
+  }
+
+  async function runJob(j) {
+    j.state = "discovery";       // before any await, so the pump cannot start it twice
+    j.started = Date.now();
+    j.id = "eval-" + crypto.randomUUID();
+    j.task = taskFor(j);
+    running.add(j);
+    emit(j);
+    try {
+      try {
+        j.result = await discover(j);
+      } catch (e) {
+        j.result = stopped ? "cancelled" : "error";
+        if (!stopped) j.errors.push({ phase: "discovery", message: e.message });
+      }
+      if (j.result === "error" && j.errors.length) log(`${name(j)}: ${j.errors.at(-1).message.slice(0, 240)}`, true);
+
+      // A session stopped at the step limit keeps its flags, so they are investigated too.
+      const ns = [...j.issues.keys()].sort((a, b) => a - b);
+      if (plan.conds[j.cond].investigate && ns.length && !stopped &&
+          (j.result === "done" || j.result === "step_limit")) {
+        j.invTotal = ns.length;
+        j.state = "investigating";
+        emit(j);
+        for (const n of ns) {
+          if (stopped) break;
+          let reason, why = "";
+          try {
+            reason = await investigate(j, n);
+          } catch (e) {
+            if (stopped) break;
+            reason = "error";
+            why = ": " + e.message.slice(0, 200);
+            j.errors.push({ phase: `investigation #${n}`, message: e.message });
+          }
+          // Cancelled is not done: the session ends here, short of its total.
+          if (reason === "cancelled") break;
+          if (reason === "error") log(`${name(j)}: the investigation of flag #${n} failed${why}.`, true);
+          j.invDone++;
+          emit(j);
+        }
+        if (j.invDone < j.invTotal) j.result = "cancelled";
+        else {
+          log(`${name(j)}: ${plural(j.invTotal, "flag")} investigated` +
+              (j.invLimit ? `, ${j.invLimit} at the step limit.` : "."), j.invLimit > 0);
+        }
+      }
+    } finally {
+      running.delete(j);
+      j.abort = null;
+      j.state = j.result;
+      j.ended = Date.now();
+      emit(j);
+      const what = { done: "done", step_limit: `hit the ${STEP_LIMIT}-step limit, flags so far kept`,
+                     error: "failed", cancelled: "cancelled" }[j.result];
+      log(`${name(j)}: ${what} · ${plural(j.flags, "flag")}, ${plural(j.turns, "model turn")}, ` +
+          `${clock(j.ended - j.started)}.`, j.result !== "done");
+      purge(j);
+    }
+  }
+
+  function pump() {
+    if (!stopped) {
+      for (const j of order) {
+        if (running.size >= plan.parallel) break;
+        if (j.state === "queued" && j.after.every((k) => ended(jobs.get(k)))) {
+          runJob(j).catch((e) => log(`${name(j)}: ${e.message}`, true)).finally(pump);
+        }
+      }
+    }
+    if (finished || running.size || ![...jobs.values()].every(ended)) return;
+    finished = true;
+    if (stopped) log("Every session has ended. What they found before the stop is in the results.");
+    else {
+      log("Every session has ended. Download the results for the scorer.");
+      onEvent({ type: "status", status: "awaiting_scoring" });
+    }
+  }
+
+  // Ask the Runtime to cancel a session's job. It says whether it found one; the
+  // stream then ends with a cancelled done event, or is cut after the grace period.
+  function stopOne(j, token, keepalive) {
+    try {
+      fetch(runtimeUrl(), { method: "POST", headers: headers(j, token), keepalive,
+                            body: JSON.stringify({ action: "stop", conversation: j.id }) }).catch(() => {});
+    } catch { /* unload path */ }
+  }
+
+  // The tab is what drives the run, so when it goes, the sessions in flight are
+  // told to stop rather than left to burn tokens no one will collect. No renewal
+  // here: an unloading page cannot wait for one.
+  window.addEventListener("pagehide", () => running.forEach((j) => stopOne(j, accessToken, true)));
+
+  onEvent({ type: "status", status: "running" });
+  log(`Live run on the deployed Runtime. The warehouse is not reset: sessions query CDW as it stands ` +
+      `(recorded as the ${plan.snapshot} set).`);
+  log(`Starting ${plural(jobs.size, "discovery session")}, up to ${plan.parallel} at a time.`);
+  pump();
+
+  return {
+    stop() {
+      if (stopped || finished) return;
+      stopped = true;
+      for (const j of jobs.values()) {
+        if (j.state !== "queued") continue;
+        j.state = j.result = "cancelled";
+        emit(j);
+      }
+      // A discovery stream can outlast the hour-long access token, so renew first.
+      const token = freshAccessToken().catch(() => accessToken);
+      for (const j of running) {
+        token.then((t) => stopOne(j, t, false));
+        const abort = j.abort;
+        setTimeout(() => abort?.abort(), STOP_GRACE_MS);
+      }
+      log(running.size ? `Stopping ${plural(running.size, "session")} in flight; ` +
+                         "the ones that had ended keep their flags." : "Stopped.", true);
+      onEvent({ type: "status", status: "stopped" });
+      pump();
+    },
+    results() {
+      const iso = (t) => (t ? new Date(t).toISOString() : null);
+      return order.map((j) => ({
+        key: j.key, condition: plan.conds[j.cond].label, run: j.run,
+        table: j.table === "*" ? null : j.table, kind: j.kind, session: j.id, task: j.task,
+        state: j.state, started: iso(j.started), ended: iso(j.ended),
+        flags: [...j.issues.values()], discovery: j.discovery, investigations: j.investigations,
+        errors: j.errors, transcript: j.transcript,
+      }));
+    },
+  };
 }
 
 // ---- MockHarness ----------------------------------------------------------------
 // Stands in for the harness the design calls for, so the monitor has something to
-// show. The contract a real harness keeps:
-//   MockHarness(plan, onEvent) -> { stop() }
+// show. The contract every harness keeps:
+//   Harness(plan, onEvent) -> { stop() }, and RuntimeHarness adds results()
 //   plan:  { units: [{ key, cond, run, table, kind, after }], parallel,
-//            conds: { [key]: { label, ...settings } }, snapshot }
+//            conds: { [key]: { label, ...settings } }, snapshot, tables }
 //   onEvent receives
 //     { type: "status", status }             resetting | running | awaiting_scoring | stopped
 //     { type: "session", key, ...counters }  a session's state and running totals
@@ -781,33 +1256,16 @@ function MockHarness(plan, onEvent) {
   const TICK_MS = 300;
   const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
   const ended = (j) => ENDED.includes(j.state);
-  const jobs = new Map(plan.units.map((u) => [u.key, {
-    ...u, state: "queued", result: null, steps: 0, turns: 0, tools: 0, flags: 0,
-    invDone: 0, invTotal: 0, invLimit: 0, id: null, started: null, ended: null }]));
+  const jobs = new Map(plan.units.map((u) => [u.key, newJob(u)]));
   let slots = [];               // what holds a session slot: { job } or { job, inv }
   const invQueue = [];          // investigations waiting for a slot, one per flag
   const investigated = new Set();
   let timer = null, stopped = false;
 
-  // Sessions start interleaved -- by position within their run, then run, then
-  // condition -- rather than one condition after another, so any drift in the
-  // hosted model over the hours a batch takes lands on every condition alike.
-  const condIndex = Object.fromEntries(Object.keys(plan.conds).map((k, i) => [k, i]));
-  const seen = new Map();
-  const order = [...jobs.values()].map((j) => {
-    const g = `${j.cond}|${j.run}`;
-    seen.set(g, (seen.get(g) ?? -1) + 1);
-    return { j, at: seen.get(g) };
-  }).sort((a, b) => a.at - b.at || a.j.run - b.j.run || condIndex[a.j.cond] - condIndex[b.j.cond])
-    .map((x) => x.j);
-
-  const multi = Object.keys(plan.conds).length > 1;
-  const runName = (j) => `${multi ? plan.conds[j.cond].label + " · " : ""}Run ${j.run}`;
-  const name = (j) => `${runName(j)} · ${ROW_NAMES[j.table] || j.table}`;
+  const order = startOrder([...jobs.values()], plan.conds);
+  const { runName, name } = sessionNamer(plan.conds);
   const log = (text, bad) => onEvent({ type: "log", text, bad });
-  const emit = (j) => onEvent({ type: "session", key: j.key, state: j.state, result: j.result,
-    steps: j.steps, turns: j.turns, tools: j.tools, flags: j.flags, invDone: j.invDone,
-    invTotal: j.invTotal, invLimit: j.invLimit, id: j.id, started: j.started, ended: j.ended });
+  const emit = (j) => onEvent(sessionEvent(j));
 
   function begin(j) {
     const cap = plan.conds[j.cond].cap;

@@ -38,7 +38,47 @@ async function login(email, password) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || JSON.stringify(data));
+  refreshToken = data.AuthenticationResult.RefreshToken;
+  accessExpires = Date.now() + data.AuthenticationResult.ExpiresIn * 1000;
   return data.AuthenticationResult.AccessToken;
+}
+
+// The access token lasts an hour (the pool client's default). A chat turn never
+// needs longer, but an evaluation run does, so the refresh token is kept to renew
+// it. Both live only in this page's memory, like the access token itself.
+let refreshToken = null;
+let accessExpires = 0;
+let refreshing = null;   // one renewal in flight, shared by every caller that needs it
+
+// The access token, renewed first if it is within five minutes of expiring.
+async function freshAccessToken() {
+  if (!refreshToken || Date.now() < accessExpires - 5 * 60 * 1000) return accessToken;
+  refreshing = refreshing || (async () => {
+    try {
+      const res = await fetch(`https://cognito-idp.${CFG.region}.amazonaws.com/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-amz-json-1.1",
+          "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth",
+        },
+        body: JSON.stringify({
+          AuthFlow: "REFRESH_TOKEN_AUTH",
+          ClientId: CFG.clientId,
+          AuthParameters: { REFRESH_TOKEN: refreshToken },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error("Sign-in renewal failed: " + (data.message || res.status));
+      accessToken = data.AuthenticationResult.AccessToken;
+      accessExpires = Date.now() + data.AuthenticationResult.ExpiresIn * 1000;
+      // Only present when the pool rotates refresh tokens; the old one then expires.
+      if (data.AuthenticationResult.RefreshToken) refreshToken = data.AuthenticationResult.RefreshToken;
+      return accessToken;
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
 }
 
 // ---- Direct streaming invoke of the runtime (SSE over fetch) ----

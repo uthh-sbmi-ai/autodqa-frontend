@@ -406,6 +406,14 @@
      rather than being shown disabled: a disabled control is visible but cannot
      be reached by keyboard (the accessibility review's point about #taskForm). */
   .ev-varied { margin: 0; font-size: 0.75rem; color: var(--accent); }
+  /* Same idea for a setting a live run cannot change: the deployed Runtime fixes
+     it, so the field says what it is instead of offering a control. */
+  .ev-fixed { margin: 0; font-size: 0.75rem; color: var(--text); word-break: break-word; }
+  /* A live run's download, under its chips. Secondary, like New chat: it saves
+     what the run found, it does not start anything. */
+  .ev-resultsbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -4px 0 14px; }
+  .ev-resultsbar p { margin: 0; flex: 1 1 240px; font-size: 0.75rem; color: var(--muted); }
+  .ev-dl { background: var(--card); border-color: var(--border); color: var(--text); }
   details.ev-tables { margin: 6px 0 0; }
   /* line-height for the 44px target, not display:flex -- a flex <summary> loses
      its disclosure triangle, and with it the only sign that it opens. */
@@ -760,11 +768,11 @@
   </div>
 
   <!-- The Evaluation view: launch a batch of discovery sessions and watch it run,
-       as laid out in the AutoDQA Evaluation Design doc. A DESIGN PREVIEW for now:
-       eval.js simulates the harness in this browser and nothing reaches the
-       runtime. The form is markup, not script-built, so every control's label is
-       in the page source; eval.js adds only the table checkboxes and the
-       per-experiment conditions. -->
+       as laid out in the AutoDQA Evaluation Design doc. A run either goes to the
+       deployed Runtime (live, driven from this tab) or is simulated in the browser
+       for design review; see eval.js. The form is markup, not script-built, so
+       every control's label is in the page source; eval.js adds only the table
+       checkboxes and the per-experiment conditions. -->
   <div id="evalBody" role="tabpanel" aria-labelledby="tabEval" hidden>
     <!-- Its own <main>: HTML allows one visible main, so eval.js gives the
          inactive view's main `hidden` as well and points the skip link here. -->
@@ -775,6 +783,14 @@
         <p class="ev-signin" id="evSignin">Sign in at the top of the page to configure and launch an evaluation.</p>
         <!-- Hidden and inert until sign-in, for the reasons given on #taskForm. -->
         <form class="ev-form" id="evForm" hidden inert novalidate>
+          <div class="ev-field">
+            <span class="lbl" id="evModeLbl">Run on</span>
+            <div class="ev-choice ev-stack" role="radiogroup" aria-labelledby="evModeLbl" aria-describedby="evModeHelp">
+              <label><input type="radio" name="evMode" value="live"> The deployed Runtime (live)</label>
+              <label><input type="radio" name="evMode" value="sim"> This browser (simulated)</label>
+            </div>
+            <p class="ev-help" id="evModeHelp"></p>
+          </div>
           <div class="ev-field">
             <label for="evPreset">Experiment</label>
             <!-- E6 and E7 stay listed so the set matches the design doc, but cannot
@@ -817,6 +833,7 @@
                 <p class="ev-help" id="evModelHelp">Full Bedrock model ID.</p>
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+              <p class="ev-fixed" hidden></p>
             </div>
             <div class="ev-field" data-axis="prompt">
               <span class="lbl" id="evPromptLbl">Prompt</span>
@@ -827,6 +844,7 @@
                 </div>
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+              <p class="ev-fixed" hidden></p>
             </div>
             <div class="ev-field" data-axis="cap">
               <span class="lbl" id="evCapLbl">Issue cap per session</span>
@@ -837,6 +855,7 @@
                 </div>
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+              <p class="ev-fixed" hidden></p>
             </div>
             <div class="ev-field" data-axis="tools">
               <label for="evTools">Tools</label>
@@ -848,6 +867,7 @@
                 </select>
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+              <p class="ev-fixed" hidden></p>
             </div>
             <div class="ev-field" data-axis="workflow">
               <label for="evWorkflow">Workflow</label>
@@ -872,7 +892,7 @@
                 <label><input type="radio" name="evSnapshot" value="injected"> Injected</label>
                 <label><input type="radio" name="evSnapshot" value="clean"> Clean</label>
               </div>
-              <p class="ev-help" id="evSnapHelp">The harness resets the warehouse to this set before the first session. The holdout set opens after the freeze.</p>
+              <p class="ev-help" id="evSnapHelp"></p>
             </div>
             <div class="ev-field">
               <label for="evTag">System tag</label>
@@ -902,9 +922,10 @@
 
           <p class="ev-summary" id="evDiff"></p>
           <p class="ev-summary" id="evScale"></p>
+          <!-- Text set by eval.js: it depends on whether the run is live or simulated. -->
           <div class="notice">
-            <h3>Design preview</h3>
-            <p>Runs are simulated in this browser and every number is random. Nothing is sent to the runtime.</p>
+            <h3 id="evNoticeHead"></h3>
+            <p id="evNoticeText"></p>
           </div>
           <p class="ev-err" id="evErr" role="alert"></p>
           <button id="evLaunch" type="submit">Launch evaluation</button>
@@ -919,7 +940,7 @@
         <div class="welcome" id="evIntro">
           <h3>How an evaluation runs</h3>
           <ol>
-            <li><strong>Reset.</strong> The warehouse is reset to the chosen snapshot set, so every run starts from the same data.</li>
+            <li><strong>Reset.</strong> The warehouse is reset to the chosen snapshot set, so every run starts from the same data. The console does not do this yet: reset it with cdw-synthetic before a live run.</li>
             <li><strong>Discover.</strong> Each table gets its own discovery session: a new conversation and sandbox with no memory of the others. Sessions run in parallel, up to the limit you set.</li>
             <li><strong>Synthesize (optional).</strong> One more session per run gets the merged flags and a budget for cross-table checks.</li>
             <li><strong>Investigate (E1 and E4).</strong> The harness sends every flag to investigation; no one picks.</li>

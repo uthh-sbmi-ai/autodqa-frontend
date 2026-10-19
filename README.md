@@ -11,9 +11,11 @@ Cloudflare Access); previously hosted on AWS CloudFront + S3.
   Runtime; renders each reason → act → observe step live
 - `eval.js` — the Evaluation tab: a launch form and monitor for batch
   evaluation runs (one discovery session per table, per run, per condition).
-  Currently a design preview: it simulates the harness in the browser and sends
-  nothing to the runtime. Loaded after `app.js`, whose helpers it uses, so the
-  two ship together.
+  A live run drives the deployed Runtime from the browser tab: one conversation
+  per session, every flag optionally investigated, results downloadable as
+  JSON. The experiments the Runtime cannot run yet are simulated in the
+  browser instead. Loaded after `app.js`, whose helpers it uses, so the two
+  ship together.
 - `config.js` — generated deployment config (Cognito region/client id, runtime
   ARN, model id). Not secret — these values are shipped to every browser — but
   environment-specific.
