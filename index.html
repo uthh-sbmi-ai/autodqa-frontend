@@ -160,7 +160,8 @@
   .login { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   /* An author `display` beats the UA's `[hidden] { display: none }`, so the login
      form and the task form each need their own rule for `hidden` to take effect.
-     Scoped rather than a global [hidden] rule: #appBody must stay visible. */
+     Scoped rather than a global [hidden] rule: #appBody must stay visible unless
+     the view tabs hide it (their own rule, below). */
   .login[hidden] { display: none; }
   .login input { padding: 5px 8px; font-size: 0.75rem; width: 150px; max-width: 100%; min-height: 44px; }
   .login button { padding: 5px 10px; font-size: 0.75rem; }
@@ -348,6 +349,146 @@
   .issue dd { margin: 0; font-size: 0.8125rem; white-space: pre-wrap; word-break: break-word; }
   .issue dd.mono { font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); }
 
+  /* ---- View tabs ------------------------------------------------------------
+     Chat and Evaluation are two views of one console, so they are tabs (the ARIA
+     tabs pattern; eval.js does the arrow keys) rather than pages: switching must
+     not discard a chat run in flight. The bar sits inside the header on its own
+     row, so it stays in the banner landmark, and the header's bottom rule doubles
+     as the tabs' baseline. */
+  .viewtabs { flex-basis: 100%; display: flex; gap: 4px; margin: 0 0 -8px; }
+  .viewtabs button { background: none; border: 0; border-bottom: 3px solid transparent;
+                     border-radius: 0; color: var(--muted); padding: 8px 14px; }
+  /* Selected is carried by weight and the bar as well as colour (WCAG 1.4.1). */
+  .viewtabs button[aria-selected="true"] { color: var(--text); font-weight: 600;
+                                           border-bottom-color: var(--accent); }
+  .viewtabs button:hover { color: var(--text); }
+  /* The views' own display rules are id-level, so `hidden` needs id-level help. */
+  #appBody[hidden], #evalBody[hidden] { display: none; }
+  .viewtabs[hidden] { display: none; }
+
+  /* ---- Evaluation view ------------------------------------------------------
+     The same shell as the chat: a rail beside a main column, each its own scroll
+     box, folding into one scrolling document under the reflow thresholds below. */
+  #evalBody { flex: 1; min-height: 0; display: flex; }
+  .eval { flex: 1; min-width: 0; display: flex; }
+  .ev-rail { width: clamp(320px, 28vw, 420px); flex: none; border-right: 1px solid var(--rule);
+             background: var(--panel); overflow: auto; padding: 14px 14px 24px; }
+  .ev-monitor { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px 24px; }
+  .ev-rail h2, .ev-monitor h2 { font-size: 0.6875rem; color: var(--muted); margin: 0 0 4px;
+                                text-transform: uppercase; letter-spacing: .6px; }
+  .ev-monitor .welcome { max-width: 760px; }
+  .ev-monitor .welcome h3 { margin: 0 0 8px; font-size: 0.9375rem; font-weight: 600; }
+  .ev-signin { color: var(--accent); font-size: 0.8125rem; margin: 0; }
+
+  .ev-form fieldset { min-width: 0; margin: 12px 0 0; padding: 4px 12px 12px;
+                      border: 1px solid var(--rule); border-radius: 8px; }
+  .ev-form legend { padding: 0 4px; font-size: 0.6875rem; text-transform: uppercase;
+                    letter-spacing: .6px; color: var(--muted); }
+  .ev-field { margin: 10px 0 0; }
+  .ev-field > label[for], .ev-field > .lbl { display: block; margin: 0 0 4px;
+                                             font-size: 0.75rem; color: var(--muted); }
+  .ev-form select, .ev-form input[type="text"], .ev-form input[type="number"] { width: 100%; min-height: 44px; }
+  .ev-form select { background: var(--field); color: var(--text); border: 1px solid var(--border);
+                    border-radius: 6px; padding: 8px 10px; font: inherit; font-size: 0.8125rem; }
+  .ev-form input[type="number"] { width: 6rem; }
+  .ev-form input[type="text"], .ev-form textarea { font-family: var(--font-mono); font-size: 0.75rem; }
+  .ev-form textarea { width: 100%; resize: vertical; }
+  .ev-choice { display: flex; flex-wrap: wrap; gap: 0 16px; }
+  .ev-choice.ev-stack { flex-direction: column; }
+  /* The conditions list is emptied, not hidden, when the model list replaces it. */
+  #evCondList:empty { display: none; }
+  .ev-choice label, .ev-check, .ev-tablegrid label { display: inline-flex; align-items: center; gap: 8px;
+                                                     min-height: 44px; font-size: 0.8125rem; }
+  .ev-form input[type="radio"], .ev-form input[type="checkbox"] { width: 18px; height: 18px; margin: 0;
+                                                                  flex: none; accent-color: var(--btn-border); }
+  .ev-help { margin: 2px 0 0; font-size: 0.6875rem; color: var(--muted); }
+  /* A field the experiment varies gives way to a pointer at the Conditions box,
+     rather than being shown disabled: a disabled control is visible but cannot
+     be reached by keyboard (the accessibility review's point about #taskForm). */
+  .ev-varied { margin: 0; font-size: 0.75rem; color: var(--accent); }
+  details.ev-tables { margin: 6px 0 0; }
+  /* line-height for the 44px target, not display:flex -- a flex <summary> loses
+     its disclosure triangle, and with it the only sign that it opens. */
+  details.ev-tables summary { cursor: pointer; line-height: 44px; font-size: 0.8125rem; }
+  .ev-tablegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 12px; }
+  .ev-tablegrid span { font-family: var(--font-mono); font-size: 0.6875rem; word-break: break-all; }
+  #evTablesAll { margin: 4px 0; background: var(--card); border-color: var(--border); color: var(--text); }
+  .ev-summary { margin: 12px 0 0; font-size: 0.75rem; color: var(--muted); }
+  .ev-summary strong { color: var(--text); font-weight: 500; }
+  .ev-err { color: var(--err); font-size: 0.75rem; margin: 8px 0 0; }
+  .ev-err:empty { display: none; }
+  #evLaunch { width: 100%; margin-top: 12px; }
+
+  /* Evaluations launched in this tab. Every button keeps the 3:1 --border
+     boundary; the one on show is marked by fill, weight and aria-current. */
+  .ev-runs { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  .ev-runs button, .ev-condbtn { background: var(--card); border-color: var(--border); color: var(--muted);
+                                 font-size: 0.75rem; }
+  /* Its row header cell is monospace (table names); a condition label is prose. */
+  .ev-condbtn { font-family: var(--font-ui); }
+  .ev-runs button[aria-current="true"], .ev-condbtn[aria-current="true"] {
+    background: var(--user-bg); color: var(--text); font-weight: 600; }
+  .ev-runhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 16px 0 6px; }
+  .ev-runhead h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+  .ev-runhead .rid { color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; font-weight: 400; }
+  .ev-elapsed { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .ev-stop { margin-left: auto; background: var(--card); border-color: var(--err); color: var(--err); }
+  .r-resetting .pill, .r-running .pill { color: var(--accent); }
+  .r-awaiting_scoring .pill { color: var(--ok); }
+  .r-stopped .pill { color: var(--muted); }
+  .ev-chips { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  .ev-chips li { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px;
+                 font-size: 0.6875rem; color: var(--muted); }
+  .ev-chips li.vary { border-color: var(--accent); color: var(--text); }
+  .ev-progress { display: grid; grid-template-columns: 7.5rem 1fr minmax(9rem, auto); gap: 6px 10px;
+                 align-items: center; font-size: 0.75rem; color: var(--muted); margin: 0 0 14px; }
+  .ev-progress progress { width: 100%; height: 10px; accent-color: var(--accent); }
+  .ev-progress span { font-variant-numeric: tabular-nums; }
+  .ev-totals { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 0 0 16px; }
+  .ev-totals > div { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+  .ev-totals dt { font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .ev-totals dd { margin: 2px 0 0; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+  .ev-totals dd.small { font-size: 0.75rem; color: var(--muted); }
+
+  /* The session grid: rows are tables, columns are runs. Each state is spelled
+     out in the cell; the colour and the glyph only repeat it (WCAG 1.4.1). */
+  .ev-matrixwrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px;
+                   background: var(--card); margin: 0 0 14px; }
+  .ev-matrix { border-collapse: collapse; width: 100%; font-size: 0.75rem; }
+  .ev-matrix caption { caption-side: top; text-align: left; padding: 8px 10px; color: var(--muted); font-size: 0.6875rem; }
+  .ev-matrix th, .ev-matrix td { padding: 3px 8px; border-top: 1px solid var(--rule); text-align: left; white-space: nowrap; }
+  .ev-matrix thead th { font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px;
+                        color: var(--muted); font-weight: 500; padding-top: 6px; padding-bottom: 6px; }
+  .ev-matrix tbody th { font-family: var(--font-mono); font-weight: 400; }
+  .ev-matrix .num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Each cell is a button that opens its counters in the detail box. */
+  .ev-cell { width: 100%; min-width: 10rem; text-align: left; background: none; border-color: var(--border);
+             color: var(--text); padding: 4px 8px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .ev-cell[aria-current="true"] { background: var(--user-bg); font-weight: 600; }
+  .ev-cell .sym { display: inline-block; width: 1.3em; }
+  .st-queued, .st-cancelled { color: var(--muted); }
+  .st-discovery, .st-investigating { color: var(--accent); }
+  .st-done { color: var(--ok); }
+  .st-step_limit, .st-error { color: var(--err); }
+
+  .ev-lower { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; }
+  .ev-lower h4 { margin: 0 0 6px; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: .6px;
+                 color: var(--muted); font-weight: 500; }
+  .ev-lower > div > section + section { margin-top: 14px; }
+  .ev-logbox { height: 300px; overflow-y: auto; background: var(--card); border: 1px solid var(--rule);
+               border-radius: 8px; padding: 6px 10px; font-size: 0.75rem; }
+  .ev-logbox p { margin: 2px 0; }
+  .ev-logbox time { color: var(--muted); font-family: var(--font-mono); margin-right: 8px; }
+  .ev-logbox .bad { color: var(--err); }
+  .ev-box { background: var(--card); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; }
+  .ev-box dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.75rem; }
+  .ev-box dt { color: var(--muted); }
+  .ev-box dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-word; }
+  .ev-box dd.mono { font-family: var(--font-mono); font-size: 0.6875rem; }
+  .ev-box .foot, .ev-box .empty { margin: 8px 0 0; font-size: 0.6875rem; color: var(--muted); }
+  .ev-box .empty { margin: 0; font-style: italic; }
+  @media (max-width: 1100px) { .ev-lower { grid-template-columns: 1fr; } }
+
   /* Three columns need more room than two, so the diagram -- explanatory, not
      the product -- folds away first and earlier than its old 940px. */
   @media (max-width: 1240px) { .diagram-pane { display: none; } }
@@ -373,6 +514,15 @@
        them would drop the run's actual output. Natural height, no inner scroll. */
     .issues-pane { width: 100%; flex: none; overflow: visible;
                    border-left: none; border-top: 1px solid var(--rule); }
+    /* The evaluation view stacks the same way: form first, monitor under it. The
+       activity log keeps its own height -- it is the one box that grows without end. */
+    #evalBody { flex: none; }
+    .eval { flex-direction: column; }
+    .ev-rail { width: 100%; overflow: visible; border-right: none; border-bottom: 1px solid var(--rule); }
+    .ev-monitor { overflow: visible; }
+    /* Each count drops under its bar, so the bar keeps a usable width. */
+    .ev-progress { grid-template-columns: 6.5rem 1fr; gap: 2px 10px; }
+    .ev-progress .cnt { grid-column: 2; margin-bottom: 6px; }
   }
 </style>
 </head>
@@ -419,9 +569,23 @@
         <option value="navy">Navy &amp; Gold</option>
       </select>
     </span>
+    <!-- The view switcher. Each tab controls one panel below; eval.js moves the
+         selection, hides the other panel, and re-points the skip link. Hidden
+         until eval.js runs, since without it the tabs are buttons that do nothing. -->
+    <div class="viewtabs" id="viewTabs" role="tablist" aria-label="Console views" hidden>
+      <button type="button" role="tab" id="tabChat" aria-controls="appBody" aria-selected="true">Chat</button>
+      <button type="button" role="tab" id="tabEval" aria-controls="evalBody" aria-selected="false" tabindex="-1">Evaluation</button>
+    </div>
+    <!-- Screen-reader announcements. Must exist at page load: a live region
+         created at the moment its content changes is not announced. role="log"
+         appends, so fast events queue instead of overwriting. Lives in the header,
+         which every view shares: inside one view's <main> it would fall silent
+         whenever the other view is showing, and hidden text still needs to be in a
+         landmark. -->
+    <div id="announcer" class="sr-only" role="log" aria-live="polite"></div>
   </header>
 
-  <div id="appBody" hidden>
+  <div id="appBody" role="tabpanel" aria-labelledby="tabChat" hidden>
     <aside class="diagram-pane">
       <h2>Architecture</h2>
       <!-- aria-live so the reason -> act -> observe trace is announced as it changes. -->
@@ -544,11 +708,6 @@
     <!-- tabindex="-1" so the skip link actually moves focus here; without it the
          jump is visual only and the next Tab returns to the top of the page. -->
     <main class="chatpanel" id="main" tabindex="-1">
-      <!-- Screen-reader announcements. Must exist at page load: a live region
-           created at the moment its content changes is not announced. Lives
-           inside <main> because hidden text still needs to be in a landmark.
-           role="log" appends, so fast events queue instead of overwriting. -->
-      <div id="announcer" class="sr-only" role="log" aria-live="polite"></div>
       <!-- tabindex="0" so this scrollable region can be reached and arrow-scrolled
            without a mouse: a long text-only answer contains nothing focusable, so
            there was otherwise no way to read past the fold (WCAG 2.1.1). -->
@@ -600,13 +759,186 @@
     </aside>
   </div>
 
+  <!-- The Evaluation view: launch a batch of discovery sessions and watch it run,
+       as laid out in the AutoDQA Evaluation Design doc. A DESIGN PREVIEW for now:
+       eval.js simulates the harness in this browser and nothing reaches the
+       runtime. The form is markup, not script-built, so every control's label is
+       in the page source; eval.js adds only the table checkboxes and the
+       per-experiment conditions. -->
+  <div id="evalBody" role="tabpanel" aria-labelledby="tabEval" hidden>
+    <!-- Its own <main>: HTML allows one visible main, so eval.js gives the
+         inactive view's main `hidden` as well and points the skip link here. -->
+    <main class="eval" id="evMain" tabindex="-1" hidden>
+      <section class="ev-rail" aria-labelledby="evFormHead">
+        <h2 id="evFormHead">New evaluation</h2>
+        <p class="cap">Each run gives every selected table its own discovery session. Every setting is held fixed except the one the experiment varies.</p>
+        <p class="ev-signin" id="evSignin">Sign in at the top of the page to configure and launch an evaluation.</p>
+        <!-- Hidden and inert until sign-in, for the reasons given on #taskForm. -->
+        <form class="ev-form" id="evForm" hidden inert novalidate>
+          <div class="ev-field">
+            <label for="evPreset">Experiment</label>
+            <!-- E6 and E7 stay listed so the set matches the design doc, but cannot
+                 be picked: E6's baselines run outside the console, and E7 needs
+                 prevalence snapshot sets that do not exist yet. -->
+            <select id="evPreset" aria-describedby="evPresetHelp">
+              <option value="ref">Reference condition</option>
+              <option value="E1">E1 · Model comparison</option>
+              <option value="E2">E2 · Workflow</option>
+              <option value="E3">E3 · Kahn prompt</option>
+              <option value="E4">E4 · Tool access</option>
+              <option value="E5">E5 · Issue cap</option>
+              <option value="E6" disabled>E6 · Simpler methods (outside the console)</option>
+              <option value="E7" disabled>E7 · Prevalence (snapshot sets not built)</option>
+              <option value="C">C · Clean control</option>
+              <option value="custom">Custom</option>
+            </select>
+            <p class="ev-help" id="evPresetHelp"></p>
+          </div>
+
+          <!-- The setting the experiment varies, one condition per tick (or per
+               model line). Hidden for the reference and custom runs, which are a
+               single condition. -->
+          <fieldset id="evConds" hidden>
+            <legend id="evCondsLegend">Conditions</legend>
+            <div class="ev-choice ev-stack" id="evCondList"></div>
+            <div class="ev-field" id="evModelsField" hidden>
+              <label for="evModels">Model IDs, one per line</label>
+              <textarea id="evModels" rows="4" spellcheck="false" aria-describedby="evModelsHelp"></textarea>
+              <p class="ev-help" id="evModelsHelp">Full Bedrock IDs with their version suffix, so each condition is pinned. The final model list is still an open question in the design.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Settings</legend>
+            <div class="ev-field" data-axis="model">
+              <label for="evModel">Model</label>
+              <div class="ev-ctl">
+                <input id="evModel" type="text" spellcheck="false" autocomplete="off" aria-describedby="evModelHelp">
+                <p class="ev-help" id="evModelHelp">Full Bedrock model ID.</p>
+              </div>
+              <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+            </div>
+            <div class="ev-field" data-axis="prompt">
+              <span class="lbl" id="evPromptLbl">Prompt</span>
+              <div class="ev-ctl">
+                <div class="ev-choice ev-stack" role="radiogroup" aria-labelledby="evPromptLbl">
+                  <label><input type="radio" name="evPrompt" value="K0"> K0 · dimension definitions only</label>
+                  <label><input type="radio" name="evPrompt" value="K1"> K1 · plus the Kahn block</label>
+                </div>
+              </div>
+              <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+            </div>
+            <div class="ev-field" data-axis="cap">
+              <span class="lbl" id="evCapLbl">Issue cap per session</span>
+              <div class="ev-ctl">
+                <div class="ev-choice" role="radiogroup" aria-labelledby="evCapLbl">
+                  <label><input type="radio" name="evCap" value="10"> 10</label>
+                  <label><input type="radio" name="evCap" value="20"> 20</label>
+                </div>
+              </div>
+              <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+            </div>
+            <div class="ev-field" data-axis="tools">
+              <label for="evTools">Tools</label>
+              <div class="ev-ctl">
+                <select id="evTools">
+                  <option value="all">All tools</option>
+                  <option value="no_valuesets">No get_valuesets</option>
+                  <option value="no_etl">Investigation without ETL tools</option>
+                </select>
+              </div>
+              <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+            </div>
+            <div class="ev-field" data-axis="workflow">
+              <label for="evWorkflow">Workflow</label>
+              <div class="ev-ctl">
+                <select id="evWorkflow" aria-describedby="evWorkflowHelp">
+                  <option value="per_table">Per table, independent</option>
+                  <option value="synthesis">Per table, plus a synthesis pass</option>
+                  <option value="chained">Per table, chained with carryover</option>
+                  <option value="whole">One whole-warehouse session</option>
+                </select>
+                <p class="ev-help" id="evWorkflowHelp">Each table session is focused on its table but may query any table or database.</p>
+              </div>
+              <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
+            </div>
+            <div class="ev-field">
+              <label class="ev-check"><input type="checkbox" id="evInvestigate"> Investigate every flag</label>
+              <p class="ev-help">The harness sends every flag to investigation, so no person's choice shapes attribution. E1 and E4 only; each investigation gets its own step budget.</p>
+            </div>
+            <div class="ev-field">
+              <span class="lbl" id="evSnapLbl">Snapshot set</span>
+              <div class="ev-choice" role="radiogroup" aria-labelledby="evSnapLbl" aria-describedby="evSnapHelp">
+                <label><input type="radio" name="evSnapshot" value="injected"> Injected</label>
+                <label><input type="radio" name="evSnapshot" value="clean"> Clean</label>
+              </div>
+              <p class="ev-help" id="evSnapHelp">The harness resets the warehouse to this set before the first session. The holdout set opens after the freeze.</p>
+            </div>
+            <div class="ev-field">
+              <label for="evTag">System tag</label>
+              <input id="evTag" type="text" spellcheck="false" autocomplete="off" aria-describedby="evTagHelp">
+              <p class="ev-help" id="evTagHelp">Recorded with every run. Test and holdout scores need a frozen tag such as eval-v1.</p>
+            </div>
+            <p class="ev-help">Fixed for every run: temperature 0, and 250 graph steps per session and per investigation.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>Scope</legend>
+            <details class="ev-tables">
+              <summary>Tables (<span id="evTablesCount"></span>)</summary>
+              <button type="button" id="evTablesAll"></button>
+              <div class="ev-tablegrid" id="evTableGrid"></div>
+            </details>
+            <div class="ev-field">
+              <label for="evRunCount">Runs per condition</label>
+              <input id="evRunCount" type="number" min="1" max="10" step="1">
+            </div>
+            <div class="ev-field">
+              <label for="evParallel">Sessions in parallel</label>
+              <input id="evParallel" type="number" min="1" max="32" step="1" aria-describedby="evParallelHelp">
+              <p class="ev-help" id="evParallelHelp">Each live session holds a sandbox microVM and a SQL Server connection. Bedrock throughput is usually the ceiling.</p>
+            </div>
+          </fieldset>
+
+          <p class="ev-summary" id="evDiff"></p>
+          <p class="ev-summary" id="evScale"></p>
+          <div class="notice">
+            <h3>Design preview</h3>
+            <p>Runs are simulated in this browser and every number is random. Nothing is sent to the runtime.</p>
+          </div>
+          <p class="ev-err" id="evErr" role="alert"></p>
+          <button id="evLaunch" type="submit">Launch evaluation</button>
+        </form>
+      </section>
+
+      <section class="ev-monitor" aria-labelledby="evMonHead">
+        <h2 id="evMonHead">Evaluations</h2>
+        <p class="cap">Launched from this browser tab and held in memory only: reloading or closing the tab ends the monitor.</p>
+        <!-- The <ul class="ev-runs"> is created by eval.js with the first launch,
+             for the same reason as the issues <ol>: an empty list fails 1.3.1. -->
+        <div class="welcome" id="evIntro">
+          <h3>How an evaluation runs</h3>
+          <ol>
+            <li><strong>Reset.</strong> The warehouse is reset to the chosen snapshot set, so every run starts from the same data.</li>
+            <li><strong>Discover.</strong> Each table gets its own discovery session: a new conversation and sandbox with no memory of the others. Sessions run in parallel, up to the limit you set.</li>
+            <li><strong>Synthesize (optional).</strong> One more session per run gets the merged flags and a budget for cross-table checks.</li>
+            <li><strong>Investigate (E1 and E4).</strong> The harness sends every flag to investigation; no one picks.</li>
+            <li><strong>Score.</strong> The scorer merges the flags, matches each to at most one planted defect, and grades credit from detection up to repair.</li>
+          </ol>
+          <p class="foot">Only flag counts are shown while a run is live. Flag text waits for the scorer, which redacts matches to held-out defects first, and until the freeze it reports the dev split only.</p>
+        </div>
+        <div id="evMonitor" hidden></div>
+      </section>
+    </main>
+  </div>
+
   <!-- Required footer. The revision <time> is rewritten at deploy by
        stamp_revision.py — keep the id and the element shape, the script matches
        on them. -->
   <footer class="sitefoot">
     <span>Content owner: <a href="mailto:big.arc@uth.tmc.edu">BIG-Arc</a></span>
     <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
-    <span>Last revised <time id="revdate" datetime="2026-09-25">September 25, 2026</time></span>
+    <span>Last revised <time id="revdate" datetime="2026-10-19">October 19, 2026</time></span>
     <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>
@@ -614,5 +946,6 @@
 
   <script src="config.js"></script>
   <script src="app.js"></script>
+  <script src="eval.js"></script>
 </body>
 </html>

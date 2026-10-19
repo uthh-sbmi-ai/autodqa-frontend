@@ -688,7 +688,8 @@ $("loginBtn").addEventListener("click", async () => {
     setComposerShown(true);
     clearIssues();
     refreshWelcome();                     // same block, minus the sign-in line
-    $("task").focus();
+    $("task").focus();                    // a no-op while the Evaluation view is showing
+    document.dispatchEvent(new Event("autodqa:signedin"));   // eval.js unlocks its form
   } catch (e) {
     $("loginErr").textContent = e.message;
   } finally {

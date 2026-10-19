@@ -9,6 +9,11 @@ Cloudflare Access); previously hosted on AWS CloudFront + S3.
 - `index.html` — the single-page console UI
 - `app.js` — sign-in (Cognito) + streaming invoke of the Bedrock AgentCore
   Runtime; renders each reason → act → observe step live
+- `eval.js` — the Evaluation tab: a launch form and monitor for batch
+  evaluation runs (one discovery session per table, per run, per condition).
+  Currently a design preview: it simulates the harness in the browser and sends
+  nothing to the runtime. Loaded after `app.js`, whose helpers it uses, so the
+  two ship together.
 - `config.js` — generated deployment config (Cognito region/client id, runtime
   ARN, model id). Not secret — these values are shipped to every browser — but
   environment-specific.
