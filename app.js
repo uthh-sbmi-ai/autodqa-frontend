@@ -429,12 +429,14 @@ function issueDetails(issue) {
   }
   d.appendChild(dl);
 
-  // One open at a time. The column is narrow and evidence blocks are long, so two
-  // open issues push the rest of the list out of view. Done on toggle rather than
-  // with <details name> so it works in browsers without exclusive accordions.
+  // One open at a time in its list. The column is narrow and evidence blocks are
+  // long, so two open issues push the rest of the list out of view. Done on toggle
+  // rather than with <details name> so it works in browsers without exclusive
+  // accordions. The list is whichever one holds it: the Evaluation tab's pick
+  // builds its own from this function.
   d.addEventListener("toggle", () => {
     if (!d.open) return;
-    issuesOl.querySelectorAll("details.issue[open]").forEach((o) => { if (o !== d) o.open = false; });
+    d.closest("ol")?.querySelectorAll("details.issue[open]").forEach((o) => { if (o !== d) o.open = false; });
   });
   return d;
 }

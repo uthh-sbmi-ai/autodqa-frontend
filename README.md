@@ -12,7 +12,8 @@ Cloudflare Access); previously hosted on AWS CloudFront + S3.
 - `eval.js` — the Evaluation tab: a launch form and monitor for batch
   evaluation runs (one discovery session per table, per run, per condition).
   A live run drives the deployed Runtime from the browser tab: one conversation
-  per session, every flag optionally investigated, results downloadable as
+  per discovery session, then a pause in which you pick the flags to
+  investigate (one conversation each, in rounds), results downloadable as
   JSON. The experiments the Runtime cannot run yet are simulated in the
   browser instead. Loaded after `app.js`, whose helpers it uses, so the two
   ship together.

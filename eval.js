@@ -86,11 +86,12 @@ const LIVE_FIXED = {
   tools: { value: "all", text: "All tools. The deployed Runtime cannot withhold one yet." },
 };
 
-// Mean cost of a Sonnet 4.5 discovery session, and of investigating one flag,
-// from the Runtime's token spans since 2026-08-24 at the US-profile rate with no
-// prompt caching. Rough by nature, and only for that model and per-table sessions:
-// a whole-warehouse session has never been measured.
-const COST = { model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", discovery: 1.73, perFlag: 1.79 };
+// Mean cost of a Sonnet 4.5 discovery session, and of investigating one flag, as
+// measured on ev-1 (2026-10-19, Runtime v22, prompt caching on) from the
+// Cloudflare log's per-call cost: 15 completed sessions, 138 flags. Rough by
+// nature, and only for that model and per-table sessions: a whole-warehouse
+// session has never been measured.
+const COST = { model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", discovery: 0.80, perFlag: 0.42 };
 
 // One entry per experiment in the design doc. `axis` is the setting it varies and
 // `conds` its conditions as [value, short label, long label, ticked by default];
@@ -100,8 +101,8 @@ const PRESETS = {
   ref: { help: "Per-table workflow, K1 prompt, cap 10, the reference model, detection only. " +
                "Every experiment changes one thing from it." },
   E1: { axis: "model", set: { investigate: true },
-        help: "Detection and attribution against cost, by model. Every flag is investigated. " +
-              "Scored on test and holdout, all five credit levels." },
+        help: "Detection and attribution against cost, by model. Every flag is investigated: pick all " +
+              "of them at the pause. Scored on test and holdout, all five credit levels." },
   E2: { axis: "workflow",
         conds: [["whole", "Whole warehouse", "One whole-warehouse session", true],
                 ["per_table", "Per table", "Per table, independent", true],
@@ -129,7 +130,10 @@ const PRESETS = {
 };
 
 const STATUS = { resetting: "Resetting warehouse", running: "Running",
+                 awaiting_selection: "Paused for a pick", investigating: "Investigating",
                  awaiting_scoring: "Awaiting scoring", stopped: "Stopped" };
+// While a live run is in one of these, closing the tab loses it.
+const LIVE_STATUSES = ["running", "awaiting_selection", "investigating"];
 const ROW_NAMES = { "*": "All tables (one session)", "+": "Synthesis pass" };
 // The glyph repeats the state; the state is always also spelled out. Shapes are
 // from the ones every system font carries -- quarter and half circles are not.
@@ -342,7 +346,7 @@ function problems(f) {
            `(for example …-v1:0) so the run is pinned.`;
   }
   if (f.conds.some((c) => c.settings.tools === "no_etl" && !c.settings.investigate)) {
-    return "Investigation without ETL tools only changes anything when every flag is investigated.";
+    return "Investigation without ETL tools only changes anything with the investigation phase on.";
   }
   if (!f.tables.length) return "Select at least one table.";
   if (!Number.isInteger(f.runs) || f.runs < 1 || f.runs > 10) return "Runs per condition must be a whole number from 1 to 10.";
@@ -364,7 +368,7 @@ function describeDiff(f) {
   if (p.axis !== "workflow" && b.workflow !== REFERENCE.workflow) {
     out.push(`workflow (${optText("evWorkflow", b.workflow).toLowerCase()})`);
   }
-  if (b.investigate !== REFERENCE.investigate) out.push(b.investigate ? "every flag investigated" : "no investigation");
+  if (b.investigate !== REFERENCE.investigate) out.push(b.investigate ? "an investigation phase" : "no investigation");
   if (b.snapshot !== REFERENCE.snapshot) out.push(`${b.snapshot} snapshot set`);
   if (f.tables.length !== TABLES.length) out.push(`${f.tables.length} of ${TABLES.length} tables`);
   const lead = p.axis ? `Varies the ${AXIS_NAMES[p.axis]} over ${plural(f.conds.length, "condition")}. ` : "";
@@ -374,7 +378,8 @@ function describeDiff(f) {
 }
 
 // The run's size before it starts: sessions, the most flags they can raise, and
-// the most investigations those can trigger -- investigation is what drives cost.
+// the most investigations a pick of all of them could start -- investigation is
+// what drives cost.
 function scale(f) {
   let sessions = 0, flags = 0, invest = 0;
   for (const { settings: s } of f.conds) {
@@ -396,12 +401,13 @@ function renderScale(f) {
     strong(plural(sessions, "discovery session")),
     ` (${plural(f.conds.length, "condition")} × ${plural(f.runs, "run")}), raising up to `,
     strong(plural(flags, "flag")),
-    invest ? "; investigating every flag adds up to " : ". Detection only: nothing is investigated.");
+    invest ? ". The run then pauses for you to pick the flags to investigate: at most "
+           : ". Detection only: nothing is investigated.");
   if (invest) box.append(strong(plural(invest, "investigation")), ` of up to ${STEP_LIMIT} steps each.`);
   const cost = f.mode === "live" && estimate(f);
   if (cost) {
-    box.append(" Rough cost at past runs' average: about ", strong(usd(cost.discovery)), " for discovery");
-    if (cost.inv) box.append(", plus up to ", strong(usd(cost.inv)), " if every session fills its cap");
+    box.append(" Rough cost at ev-1's measured rates: about ", strong(usd(cost.discovery)), " for discovery");
+    if (cost.inv) box.append(", and up to ", strong(usd(cost.inv)), " more if every session fills its cap and you pick every flag");
     box.append(".");
   }
 }
@@ -435,17 +441,32 @@ $("evForm").addEventListener("submit", (e) => {
   if (!err && (f.mode !== "live" || confirmLive(f))) launch(f);
 });
 
-// The one step that spends money, so it asks first. A native dialog: it takes
-// focus, traps it, and is announced, with nothing to build.
+// One of the two steps that spend money, so it asks first; the pick asks again
+// before investigating (confirmRound). A native dialog: it takes focus, traps it,
+// and is announced, with nothing to build.
 function confirmLive(f) {
-  const { sessions } = scale(f);
+  const { sessions, invest } = scale(f);
   const cost = estimate(f);
   const money = !cost ? "Each session is billed; there is no measured cost for this configuration yet."
-    : `Rough cost: about ${usd(cost.discovery)}` + (cost.inv ? `, plus up to ${usd(cost.inv)} if every session fills its cap.` : ".");
+    : `Rough cost of discovery: about ${usd(cost.discovery)}.`;
+  const pause = invest ? "\n\nThe run pauses when discovery is over. Nothing is investigated until you pick " +
+                         "flags and confirm their cost." : "";
   return window.confirm(
     `Launch a live evaluation?\n\n${plural(sessions, "discovery session")} on the deployed Runtime, ` +
-    `up to ${f.parallel} at a time, each billed through the Cloudflare AI Gateway. ${money}\n\n` +
+    `up to ${f.parallel} at a time, each billed through the Cloudflare AI Gateway. ${money}${pause}\n\n` +
     "Keep this tab open until it ends: the tab is what drives the run, and closing it stops it.");
+}
+
+// What investigating one flag costs, from COST: only when every condition is that model.
+const flagCost = (ev) => (ev.conds.every((c) => c.settings.model === COST.model) ? COST.perFlag : null);
+
+function confirmRound(ev, k) {
+  const per = flagCost(ev);
+  return window.confirm(
+    `Investigate ${plural(k, "flag")} on the deployed Runtime?\n\nEach one is its own conversation, ` +
+    `up to ${ev.f.parallel} at a time, billed through the Cloudflare AI Gateway. ` +
+    (per ? `Rough cost: about ${usd(k * per)}.` : "There is no measured cost for this model yet.") +
+    "\n\nKeep this tab open until the round ends.");
 }
 
 $("evModels").value = CFG.model;
@@ -473,6 +494,10 @@ function launch(f) {
     conds: f.conds.map((c, i) => ({ ...c, key: "c" + i })),
     status: f.mode === "live" ? "running" : "resetting", started: Date.now(), ended: null,
     units: [], sessions: new Map(), log: [],
+    // The pause between the phases: each round of investigation the user started
+    // ({ at, offered, picks: [{ key, n }] }), the ticks not yet submitted (as
+    // "key#n"), and the time spent waiting, which the elapsed clock leaves out.
+    rounds: [], pick: new Set(), pausedAt: null, pausedMs: 0,
   };
   // One unit per discovery session the plan needs, keyed cond|run|table, with "*"
   // for a whole-warehouse session and "+" for a run's synthesis pass. `after`
@@ -527,8 +552,18 @@ function launch(f) {
 
 function onHarnessEvent(ev, e) {
   if (e.type === "status") {
+    const now = Date.now();
+    if (ev.pausedAt) {
+      ev.pausedMs += now - ev.pausedAt;
+      ev.pausedAt = null;
+    }
     ev.status = e.status;
-    if (e.status === "awaiting_scoring" || e.status === "stopped") ev.ended = Date.now();
+    if (e.status === "awaiting_scoring" || e.status === "stopped") ev.ended = now;
+    if (e.status === "awaiting_selection") {
+      ev.pausedAt = now;
+      announce(`Evaluation ${ev.id} paused. ${plural(ev.handle.flags().length, "flag")} ` +
+               "can be picked for investigation.");
+    }
     if (e.status === "awaiting_scoring") {
       announce(`Evaluation ${ev.id} finished. ${plural(sum([...ev.sessions.values()], "flags"), "flag")} await scoring.`);
     }
@@ -590,7 +625,7 @@ function show(ev) {
   }
 
   // One bar per phase the plan has. Investigation's total is not known up front --
-  // it is however many flags discovery raises -- so its bar grows as they land.
+  // it is however many flags the user picks -- so its bar starts at each pick.
   const prog = el("div", "ev-progress");
   view.bars = {};
   const phases = [["disc", "Discovery"]];
@@ -606,6 +641,14 @@ function show(ev) {
     view.bars[k] = { bar, txt };
   }
   root.appendChild(prog);
+
+  // Where the run waits between its phases, filled by syncPick.
+  if (view.bars.inv) {
+    view.pick = el("section", "ev-pick");
+    view.pick.hidden = true;
+    view.pickKey = null;
+    root.appendChild(view.pick);
+  }
 
   const dl = el("dl", "ev-totals");
   view.tot = {};
@@ -665,7 +708,7 @@ function chips(ev) {
   if (axis !== "cap") add(`Cap ${b.cap}`);
   if (axis !== "tools") add(optText("evTools", b.tools));
   if (axis !== "workflow") add(optText("evWorkflow", b.workflow));
-  add(b.investigate ? "Every flag investigated" : "Detection only");
+  add(b.investigate ? "Investigation of picked flags" : "Detection only");
   add(`Snapshot: ${b.snapshot}${ev.mode === "live" ? " (recorded, not reset)" : ""}`);
   add(`${ev.f.tables.length} of ${TABLES.length} tables`);
   add(`${plural(ev.f.runs, "run")} per condition`);
@@ -789,7 +832,8 @@ function stateText(s) {
 function cellText(s) {
   const t = stateText(s);
   if (s.state === "queued" || (s.state === "cancelled" && !s.flags)) return t;
-  return `${t} · ${plural(s.flags, "flag")}`;
+  const inv = s.invTotal && s.state !== "investigating" ? ` · ${s.invDone}/${s.invTotal} investigated` : "";
+  return `${t} · ${plural(s.flags, "flag")}${inv}`;
 }
 
 let renderQueued = false;
@@ -806,8 +850,11 @@ function render() {
   const ev = view.ev;
   view.head.className = "ev-runhead r-" + ev.status;
   view.status.textContent = STATUS[ev.status];
-  view.stop.hidden = !(ev.status === "resetting" || ev.status === "running");
-  view.elapsed.textContent = clock((ev.ended || Date.now()) - ev.started);
+  // Stopping discovery ends the run; stopping a round of investigation only ends
+  // the round, and the run pauses for another pick.
+  view.stop.hidden = !["resetting", "running", "investigating"].includes(ev.status);
+  view.stop.textContent = ev.status === "investigating" ? "Stop investigating" : "Stop evaluation";
+  view.elapsed.textContent = clock((ev.ended || ev.pausedAt || Date.now()) - ev.started - ev.pausedMs);
 
   const all = [...ev.sessions.values()];
   const past = (s) => s.state !== "queued" && s.state !== "discovery";
@@ -815,19 +862,25 @@ function render() {
   const disc = all.filter((s) => s.kind !== "synthesis"), syn = all.filter((s) => s.kind === "synthesis");
   const inv = all.filter(investigates);
   const invDone = sum(inv, "invDone"), invTotal = sum(inv, "invTotal");
-  const discoveryOver = all.every(past);
 
-  const bar = (k, done, total, unit, open, units) => {
+  const bar = (k, done, total, unit, units) => {
     if (!view.bars[k]) return;
     view.bars[k].bar.max = Math.max(total, 1);
     view.bars[k].bar.value = done;
-    view.bars[k].txt.textContent = `${fmt(done)} / ${plural(total, unit, units)}${open ? " so far" : ""}`;
+    view.bars[k].txt.textContent = `${fmt(done)} / ${plural(total, unit, units)}`;
   };
   bar("disc", disc.filter(past).length, disc.length, "session");
-  bar("synth", syn.filter(past).length, syn.length, "pass", false, "passes");
-  bar("inv", invDone, invTotal, "flag", !discoveryOver && ev.status !== "stopped");
+  bar("synth", syn.filter(past).length, syn.length, "pass", "passes");
+  if (ev.rounds.length) bar("inv", invDone, invTotal, "picked flag");
+  else if (view.bars.inv) {
+    view.bars.inv.bar.value = 0;
+    view.bars.inv.txt.textContent = ev.status === "awaiting_selection" ? "waiting for your pick"
+      : ev.ended ? "none picked" : "starts with your pick";
+  }
+  syncPick();
 
-  const ended = all.filter((s) => ENDED.includes(s.state)).length;
+  // A session whose flags are being investigated has finished its discovery.
+  const ended = all.filter((s) => ENDED.includes(s.state) || s.state === "investigating").length;
   view.tot.sessions.textContent = `${fmt(ended)} / ${fmt(all.length)}`;
   view.tot.flags.textContent = fmt(sum(all, "flags"));
   if (inv.length) view.tot.inv.textContent = `${fmt(invDone)} / ${fmt(invTotal)}`;
@@ -898,12 +951,198 @@ function renderDetail() {
   }
   row("Model turns", fmt(s.turns));
   row("Tool calls", fmt(s.tools));
-  row("Elapsed", s.started ? clock((s.ended || Date.now()) - s.started) : "—");
+  row("Discovery time", s.started ? clock((s.ended || Date.now()) - s.started) : "—");
   row("Session ID", s.id || "assigned when it starts", s.id ? "mono" : null);
   box.replaceChildren(dl, el("p", "foot",
     "Turns and tool calls include the session's investigations. " + (view.ev.mode === "live"
       ? "Flag text and the transcript are in the downloaded results, not shown here."
       : "The transcript opens after scoring, with any match to a held-out defect redacted.")));
+}
+
+// ---- The pick -----------------------------------------------------------------
+// When discovery is over, a run that investigates pauses here, and again after
+// every round of investigation while flags are left. Like the chat's issue panel:
+// tick the flags worth a root cause, then start them; the rest stay open for a
+// later round, until Finish ends the run. The list sits behind a disclosure, so
+// Select all can send every flag without anyone reading one -- E1 and E4 want
+// attribution that no one's choice has shaped, and the list shows flag text
+// unredacted.
+const fid = (f) => `${f.key}#${f.n}`;
+
+// Rebuilt only when what the box should show changes, not on every render: the
+// ticks and an open disclosure have to survive the one-second clock.
+function syncPick() {
+  const ev = view.ev, box = view.pick;
+  if (!box) return;
+  const key = ev.status === "awaiting_selection" ? `pick|${ev.rounds.length}`
+    : ev.rounds.length || ev.ended ? `sum|${ev.status}|${ev.rounds.length}` : null;
+  if (key === view.pickKey) return;
+  // Focus inside the box would fall to the page as it is rebuilt; keep it here.
+  const hadFocus = box.contains(document.activeElement);
+  view.pickKey = key;
+  box.hidden = !key;
+  view.pickHead = null;
+  if (!key) box.replaceChildren();
+  else if (key.startsWith("pick")) buildPick();
+  else buildSummary();
+  if (hadFocus) view.pickHead?.focus();
+}
+
+function pickHead(text) {
+  const h = el("h4", null, text);
+  h.id = `${view.ev.id}-pick`;
+  h.tabIndex = -1;              // focus target once the buttons that had it are gone
+  view.pick.setAttribute("aria-labelledby", h.id);
+  view.pickHead = h;
+  return h;
+}
+
+function buildPick() {
+  const ev = view.ev, box = view.pick;
+  const flags = ev.handle.flags();
+  const open = new Set(flags.map(fid));
+  for (const id of ev.pick) if (!open.has(id)) ev.pick.delete(id);
+  const round = ev.rounds.length;
+  const per = flagCost(ev);
+  const groups = new Map();
+  for (const f of flags) {
+    if (!groups.has(f.key)) groups.set(f.key, []);
+    groups.get(f.key).push(f);
+  }
+
+  const lead = el("p", "lead", round
+    ? `${plural(flags.length, "flag")} from ${plural(groups.size, "session")} not investigated yet. ` +
+      "Pick more, or finish the run."
+    : `Discovery is over and the run is paused. It raised ${plural(flags.length, "flag")} in ` +
+      `${plural(groups.size, "session")}: pick the ones to investigate.`);
+  if (per) lead.append(` One costs about ${usd(per)} at ev-1's measured rate, so all of them would be about ` +
+                       `${usd(flags.length * per)}.`);
+
+  const allBtn = el("button", "ev-pickall");
+  allBtn.type = "button";
+  const count = el("p", "ev-pickcount");
+  count.setAttribute("aria-live", "polite");
+  const tools = el("div", "ev-picktools");
+  tools.append(allBtn, count);
+
+  const list = el("details", "ev-pickflags");
+  list.appendChild(el("summary", null, `Show the ${plural(flags.length, "flag")}`));
+  const grid = el("div", "ev-pickgroups");
+  const multi = ev.conds.length > 1;
+  const rows = [];              // { id, cb, group }
+  const heads = [];             // { cb, ids }
+  for (const [key, fs] of groups) {
+    const s = ev.sessions.get(key);
+    const where = `${multi ? ev.conds.find((c) => c.key === s.cond).label + " · " : ""}` +
+                  `${ROW_NAMES[s.table] || s.table}${ev.f.runs > 1 ? ` · run ${s.run}` : ""}`;
+    const set = el("fieldset", "ev-pickgroup");
+    const legend = el("legend");
+    const lab = el("label", "ev-check");
+    const all = el("input");
+    all.type = "checkbox";
+    lab.append(all, el("span", null, `${where} · ${plural(fs.length, "flag")}`));
+    legend.appendChild(lab);
+    const ol = el("ol", "issues");
+    const ids = fs.map(fid);
+    for (const f of fs) {
+      const row = el("div", "issue-row");
+      const cb = el("input");
+      cb.type = "checkbox";
+      cb.checked = ev.pick.has(fid(f));
+      cb.setAttribute("aria-label", `Investigate ${where} flag ${f.n}: ${f.title}`);
+      cb.addEventListener("change", () => {
+        if (cb.checked) ev.pick.add(fid(f)); else ev.pick.delete(fid(f));
+        update();
+      });
+      // A copy without status or root cause: an earlier round's failed attempt
+      // left its note on the flag, and the flag is being offered afresh.
+      row.append(cb, issueDetails({ ...f, status: "flagged", root_cause: null }));
+      const li = el("li");
+      li.appendChild(row);
+      ol.appendChild(li);
+      rows.push({ id: fid(f), cb });
+    }
+    all.addEventListener("change", () => {
+      for (const id of ids) if (all.checked) ev.pick.add(id); else ev.pick.delete(id);
+      update();
+    });
+    heads.push({ cb: all, ids });
+    set.append(legend, ol);
+    grid.appendChild(set);
+  }
+  list.appendChild(grid);
+
+  const go = el("button");
+  go.type = "button";
+  go.addEventListener("click", () => startRound(ev, flags));
+  const fin = el("button", "ev-finish", round ? "Finish" : "Finish without investigating");
+  fin.type = "button";
+  fin.addEventListener("click", () => {
+    if (!window.confirm(`Finish evaluation ${ev.id}? No more flags can be investigated after this.`)) return;
+    ev.handle.finish();
+    render();
+    view.pickHead?.focus();
+  });
+  const actions = el("div", "ev-pickgo");
+  actions.append(go, fin);
+
+  const note = el("p", "ev-help", "Picking every flag keeps attribution free of anyone's choice, as E1 and E4 " +
+    "require, and Select all does it without opening the list. The list shows flag text unredacted, including " +
+    "any match to a held-out defect. Each pick is recorded in the results.");
+
+  function update() {
+    for (const r of rows) r.cb.checked = ev.pick.has(r.id);
+    for (const h of heads) {
+      const k = h.ids.filter((id) => ev.pick.has(id)).length;
+      h.cb.checked = k === h.ids.length;
+      h.cb.indeterminate = k > 0 && k < h.ids.length;
+    }
+    const k = ev.pick.size;
+    count.textContent = `${fmt(k)} of ${plural(flags.length, "flag")} picked` +
+                        (per && k ? `, about ${usd(k * per)}` : "");
+    allBtn.textContent = k === flags.length ? "Clear all" : `Select all ${fmt(flags.length)}`;
+    go.disabled = !k;
+    go.textContent = k ? `Investigate ${plural(k, "flag")}` : "Investigate picked flags";
+  }
+  allBtn.addEventListener("click", () => {
+    const every = ev.pick.size === flags.length;
+    for (const f of flags) if (every) ev.pick.delete(fid(f)); else ev.pick.add(fid(f));
+    update();
+  });
+  update();
+  box.replaceChildren(pickHead(round ? "Pick more flags to investigate" : "Pick the flags to investigate"),
+                      lead, tools, list, actions, note);
+}
+
+function buildSummary() {
+  const ev = view.ev, all = [...ev.sessions.values()];
+  const n = ev.rounds.length;
+  let text;
+  if (ev.status === "investigating") {
+    text = `Round ${n}: investigating ${plural(ev.rounds[n - 1].picks.length, "flag")}, up to ` +
+           `${ev.f.parallel} at a time. Stop investigating ends the round and pauses for another pick.`;
+  } else if (!n) {
+    text = ev.status === "stopped" ? "Stopped during discovery, so nothing was investigated."
+                                   : "Finished without investigating.";
+  } else {
+    text = `${fmt(sum(all, "invDone"))} of ${plural(sum(all, "invTotal"), "picked flag")} investigated, ` +
+           `in ${plural(n, "round")}.`;
+  }
+  view.pick.replaceChildren(pickHead("Investigation"), el("p", "lead", text));
+  if (ev.mode === "live" && n && ev.status !== "investigating") {
+    view.pick.appendChild(el("p", "ev-help", "Root causes are in the downloaded results."));
+  }
+}
+
+function startRound(ev, flags) {
+  const picks = flags.filter((f) => ev.pick.has(fid(f))).map(({ key, n }) => ({ key, n }));
+  if (!picks.length || (ev.mode === "live" && !confirmRound(ev, picks.length))) return;
+  ev.rounds.push({ at: Date.now(), offered: flags.length, picks });
+  ev.pick.clear();
+  ev.handle.investigate(picks);
+  announce(`Investigating ${plural(picks.length, "flag")}.`);
+  render();
+  view.pickHead?.focus();
 }
 
 // The scorer's input: everything a live run captured, flag text included.
@@ -914,6 +1153,11 @@ function downloadResults(ev) {
     saved: iso(Date.now()), runtime: CFG.runtimeArn, preset: ev.preset, tag: ev.f.tag,
     settings: ev.f.base, tables: ev.f.tables, runs: ev.f.runs, parallel: ev.f.parallel,
     conditions: ev.conds.map((c) => ({ key: c.key, label: c.label, settings: c.settings })),
+    // Who chose what was investigated, for the scorer: a round that took every
+    // open flag is the protocol's "every flag investigated".
+    investigation_rounds: ev.rounds.map((r) => ({
+      started: iso(r.at), offered: r.offered, picked: r.picks.length,
+      every_open_flag: r.picks.length === r.offered, flags: r.picks })),
     sessions: ev.handle.results(),
   };
   const stamp = iso(ev.started).slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
@@ -929,15 +1173,19 @@ function downloadResults(ev) {
 
 // Closing the tab ends a live run (see RuntimeHarness), so ask first.
 window.addEventListener("beforeunload", (e) => {
-  if (evals.some((ev) => ev.mode === "live" && ev.status === "running")) {
+  if (evals.some((ev) => ev.mode === "live" && LIVE_STATUSES.includes(ev.status))) {
     e.preventDefault();
     e.returnValue = "";
   }
 });
 
 // ---- Shared by both harnesses ---------------------------------------------------
+// `picked` holds every flag number a session has had picked, and `inv` each one's
+// latest state: queued, running, done, or failed (which takes in stopped). A
+// failed flag is open to another pick; the others are not.
 const newJob = (u) => ({ ...u, state: "queued", result: null, steps: 0, turns: 0, tools: 0, flags: 0,
-                         invDone: 0, invTotal: 0, invLimit: 0, id: null, started: null, ended: null });
+                         invDone: 0, invTotal: 0, invLimit: 0, id: null, started: null, ended: null,
+                         picked: new Set(), inv: new Map() });
 
 const sessionEvent = (j) => ({ type: "session", key: j.key, state: j.state, result: j.result,
   steps: j.steps, turns: j.turns, tools: j.tools, flags: j.flags, invDone: j.invDone,
@@ -960,40 +1208,127 @@ function startOrder(jobs, conds) {
 // How the activity log names a session: "Run 2 · ENCOUNTER".
 function sessionNamer(conds) {
   const multi = Object.keys(conds).length > 1;
-  const runName = (j) => `${multi ? conds[j.cond].label + " · " : ""}Run ${j.run}`;
-  return { runName, name: (j) => `${runName(j)} · ${ROW_NAMES[j.table] || j.table}` };
+  return { name: (j) => `${multi ? conds[j.cond].label + " · " : ""}Run ${j.run} · ${ROW_NAMES[j.table] || j.table}` };
+}
+
+const isOpen = (j, n) => !j.inv.has(n) || j.inv.get(n) === "failed";
+
+// The flags open to a pick, in session start order: the pick's list. `list(j)`
+// gives a session's flags.
+function openFlags(order, conds, list) {
+  return order.filter((j) => conds[j.cond].investigate).flatMap((j) => list(j)
+    .filter((i) => isOpen(j, i.n))
+    .map((i) => ({ key: j.key, n: i.n, title: i.title, dimension: i.dimension, table: i.table,
+                   column: i.column, finding: i.finding, evidence: i.evidence })));
+}
+
+// A pick as a queue of { j, n, prev }, interleaved across sessions -- every
+// session's first pick, then every second -- so no one table's flags all go
+// first. Each is marked queued; `prev` is its state before, for unqueue. A pick
+// that is no longer open is dropped.
+function roundQueue(picks, jobs, has) {
+  const byJob = new Map();
+  for (const { key, n } of picks) {
+    const j = jobs.get(key);
+    if (!j || !has(j, n) || !isOpen(j, n)) continue;
+    if (!byJob.has(j)) byJob.set(j, new Set());
+    byJob.get(j).add(n);
+  }
+  const lists = [...byJob].map(([j, ns]) => [j, [...ns]]);
+  const out = [];
+  for (let i = 0, more = true; more; i++) {
+    more = false;
+    for (const [j, ns] of lists) {
+      if (i >= ns.length) continue;
+      out.push({ j, n: ns[i], prev: j.inv.get(ns[i]) });
+      more = true;
+    }
+  }
+  for (const { j, n } of out) {
+    j.inv.set(n, "queued");
+    j.picked.add(n);
+  }
+  return out;
+}
+
+// A queued flag that never started goes back to how it was before the pick.
+function unqueue({ j, n, prev }) {
+  if (prev) j.inv.set(n, prev);
+  else {
+    j.inv.delete(n);
+    j.picked.delete(n);
+  }
+}
+
+// A session's investigation counters, from its flags' states. It reads as
+// investigating while any of them is queued or in flight, and otherwise as how
+// its discovery ended.
+function invCounters(j) {
+  const states = [...j.inv.values()];
+  j.invTotal = j.picked.size;
+  j.invDone = states.filter((s) => s === "done").length;
+  j.state = states.some((s) => s === "queued" || s === "running") ? "investigating" : j.result;
+}
+
+const sessionInvNote = (name, j) =>
+  `${name(j)}: ${fmt(j.invDone)} of ${plural(j.invTotal, "picked flag")} investigated` +
+  (j.invLimit ? `, ${j.invLimit} at the step limit.` : ".");
+
+const roundNote = (round, tally) => `Round ${round} is over: ${plural(tally.done, "flag")} investigated` +
+  (tally.failed ? `, ${fmt(tally.failed)} failed or stopped.` : ".");
+
+// What the log says when a run pauses for a pick.
+function pauseNote(round, tally, open) {
+  const left = `${plural(open.length, "flag")} from ${plural(new Set(open.map((f) => f.key)).size, "session")}`;
+  return round ? `${roundNote(round, tally)} Paused with ${left} still open: pick more, or finish.`
+               : `Discovery is over. Paused with ${left} to pick from: pick the ones to investigate, or finish.`;
 }
 
 // ---- RuntimeHarness ---------------------------------------------------------------
-// The live harness. Each unit is its own conversation with the deployed Runtime,
-// and so its own session microVM: a discovery invoke with the table's task, then,
-// when the condition investigates, one investigate invoke per flag on the same
-// conversation. The session holds its slot through all of them, because the
-// conversation lives in that microVM's memory and the Runtime drops it after 15
-// idle minutes -- investigation cannot wait for the rest of the run, as the design
-// has it. One flag per invoke rather than all of them in one batch: each still
-// gets its own thread and step budget (as in a batch), but a stream cut short
-// loses one investigation instead of the rest of the batch, and the next one
-// does not see the others listed.
+// The live harness, in two phases with a pause between them.
+//
+// Discovery: each unit is its own conversation with the deployed Runtime, and so
+// its own session microVM, given the table's task. When every session has ended,
+// a run that investigates pauses until the user picks flags (investigate) or ends
+// it (finish).
+//
+// Investigation: each picked flag is a conversation of its own as well, with its
+// ticket in the request. By then the discovery session has usually gone -- the
+// Runtime drops a conversation after 15 idle minutes, and a pause can last longer
+// -- and the ticket is all an investigation starts from anyway (entrypoint.py's
+// _investigation_task), so nothing is lost by carrying it. It also lets flags
+// from any session run side by side, up to the same parallel limit, each with its
+// own thread and step budget, and a stream cut short loses only its own flag.
+// When a round ends with flags still open, the run pauses again.
 //
 // Everything a session streams -- flags, transcript, the investigation reports --
-// is kept here for results(), and only counts go to the monitor. When a session
-// ends its conversation is purged on the Runtime, so the download is the record.
+// is kept here for results(), and only counts go to the monitor. Every
+// conversation is purged on the Runtime as soon as it ends, so the download is
+// the record.
 //
 // Not covered: resetting the warehouse, the synthesis and chained workflows, and
 // varying the prompt, cap or tools. Each needs a change on the Runtime side.
 function RuntimeHarness(plan, onEvent) {
-  const STOP_GRACE_MS = 15000;   // how long a stopped session gets to say it has stopped
+  const STOP_GRACE_MS = 15000;   // how long a stopped conversation gets to say it has stopped
+  // All a Runtime from before 2026-10-20 answers an investigation that brings its
+  // own ticket: it looks for the ticket in its memory and finds none.
+  const NO_TICKET = "No issues were selected to investigate.";
   const ended = (j) => ENDED.includes(j.state);
   const jobs = new Map(plan.units.map((u) => [u.key, {
     ...newJob(u), task: null, issues: new Map(), transcript: [], errors: [],
-    discovery: null, investigations: [], abort: null }]));
+    discovery: null, investigations: [] }]));
   const order = startOrder([...jobs.values()], plan.conds);
-  const { runName, name } = sessionNamer(plan.conds);
+  const { name } = sessionNamer(plan.conds);
   const log = (text, bad) => onEvent({ type: "log", text, bad });
   const emit = (j) => onEvent(sessionEvent(j));
+  const status = (s) => onEvent({ type: "status", status: s });
+  // What holds a parallel slot: one conversation, a discovery session's or one
+  // flag's investigation: { j, n, conv, abort }.
   const running = new Set();
-  let stopped = false, finished = false;
+  const queue = [];               // the round's flags waiting for a slot
+  let phase = "discovery";        // discovery | selection | investigation | finished
+  let stopping = false;           // the current phase was asked to stop
+  let round = 0, tally = null;
 
   // The design doc's per-table task, word for word, so live runs match what will be
   // frozen. The doc gives no whole-warehouse text; this one follows its pattern.
@@ -1003,22 +1338,22 @@ function RuntimeHarness(plan, onEvent) {
     : `Assess the data quality of CDW.dbo.${j.table}. You may query any table or database to check ` +
       `${j.table}'s rows against them.`;
 
-  const headers = (j, token) => ({
+  const headers = (conv, token) => ({
     "Authorization": `Bearer ${token}`,
     "Content-Type": "application/json",
-    "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": j.id,   // pins the session's microVM
+    "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": conv,   // pins the conversation's microVM
   });
 
-  // One streaming invoke on a session's conversation. Resolves when the stream
-  // ends; the caller checks that a done event arrived.
-  async function call(j, body, onEv) {
+  // One streaming invoke on a conversation. Resolves when the stream ends; the
+  // caller checks that a done event arrived.
+  async function call(w, body, onEv) {
     const token = await freshAccessToken();
-    j.abort = new AbortController();
+    w.abort = new AbortController();
     const res = await fetch(runtimeUrl(), {
       method: "POST",
-      headers: headers(j, token),
-      body: JSON.stringify({ ...body, conversation: j.id }),
-      signal: j.abort.signal,
+      headers: headers(w.conv, token),
+      body: JSON.stringify({ ...body, conversation: w.conv }),
+      signal: w.abort.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const reader = res.body.getReader();
@@ -1062,9 +1397,9 @@ function RuntimeHarness(plan, onEvent) {
     tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max,
     thread_messages: d.thread_messages, runtime_session: d.session });
 
-  async function discover(j) {
+  async function discover(j, w) {
     let done = null;
-    await call(j, { task: j.task }, (e) => {
+    await call(w, { task: j.task }, (e) => {
       if (e.type === "issue") {
         j.issues.set(e.issue.n, e.issue);
         j.flags = j.issues.size;
@@ -1079,150 +1414,247 @@ function RuntimeHarness(plan, onEvent) {
     return { completed: "done", step_limit: "step_limit", cancelled: "cancelled" }[done.reason] || "error";
   }
 
-  async function investigate(j, n) {
-    let done = null;
-    const phase = `investigation #${n}`;
-    await call(j, { action: "investigate", selected: [n] }, (e) => {
+  // One flag, on a conversation of its own. The ticket goes with the request; the
+  // Runtime seeds it into the new conversation and investigates just that one.
+  async function investigate(j, w) {
+    const n = w.n, phase = `investigation #${n}`;
+    const { title, dimension, finding, evidence, table, column } = j.issues.get(n);
+    let done = null, refused = false;
+    await call(w, { action: "investigate", selected: [n],
+                    issues: [{ n, title, dimension, finding, evidence, table, column }] }, (e) => {
       if (e.type === "issue_update") j.issues.set(e.issue.n, e.issue);
       else if (e.type === "report") e.issues.forEach((i) => j.issues.set(i.n, i));
       else if (e.type === "done") { done = e; return; }
       else if (!common(j, phase, e)) return;
+      if (e.type === "error" && e.message === NO_TICKET) refused = true;
       // The Runtime settles a ticket that hit the limit as inconclusive and says so here.
       if (e.type === "error" && /step limit/.test(e.message)) j.invLimit++;
       emit(j);
     });
+    if (refused) {
+      const err = new Error("The deployed Runtime cannot take a flag from an earlier session yet. Deploy " +
+                            "agentcore-runtime (2026-10-20 or later), then pick the flags again.");
+      err.outdated = true;
+      throw err;
+    }
     if (!done) throw new Error("the stream ended without saying why");
-    j.investigations.push({ issue: n, ...doneStats(done) });
-    return done.reason;
+    j.investigations.push({ issue: n, conversation: w.conv, ...doneStats(done) });
+    return done;
   }
 
   // Best-effort, like the chat's New chat: the idle timeout is the guarantee.
-  async function purge(j) {
+  async function purge(conv) {
     try {
       const token = await freshAccessToken();
-      await fetch(runtimeUrl(), { method: "POST", headers: headers(j, token),
-                                  body: JSON.stringify({ action: "end_session", conversation: j.id }) });
+      await fetch(runtimeUrl(), { method: "POST", headers: headers(conv, token),
+                                  body: JSON.stringify({ action: "end_session", conversation: conv }) });
     } catch { /* nothing to do: the Runtime drops it after 15 idle minutes anyway */ }
   }
 
   async function runJob(j) {
+    const w = { j, n: null, conv: "eval-" + crypto.randomUUID(), abort: null };
     j.state = "discovery";       // before any await, so the pump cannot start it twice
     j.started = Date.now();
-    j.id = "eval-" + crypto.randomUUID();
+    j.id = w.conv;
     j.task = taskFor(j);
-    running.add(j);
+    running.add(w);
     emit(j);
     try {
-      try {
-        j.result = await discover(j);
-      } catch (e) {
-        j.result = stopped ? "cancelled" : "error";
-        if (!stopped) j.errors.push({ phase: "discovery", message: e.message });
-      }
-      if (j.result === "error" && j.errors.length) log(`${name(j)}: ${j.errors.at(-1).message.slice(0, 240)}`, true);
-
-      // A session stopped at the step limit keeps its flags, so they are investigated too.
-      const ns = [...j.issues.keys()].sort((a, b) => a - b);
-      if (plan.conds[j.cond].investigate && ns.length && !stopped &&
-          (j.result === "done" || j.result === "step_limit")) {
-        j.invTotal = ns.length;
-        j.state = "investigating";
-        emit(j);
-        for (const n of ns) {
-          if (stopped) break;
-          let reason, why = "";
-          try {
-            reason = await investigate(j, n);
-          } catch (e) {
-            if (stopped) break;
-            reason = "error";
-            why = ": " + e.message.slice(0, 200);
-            j.errors.push({ phase: `investigation #${n}`, message: e.message });
-          }
-          // Cancelled is not done: the session ends here, short of its total.
-          if (reason === "cancelled") break;
-          if (reason === "error") log(`${name(j)}: the investigation of flag #${n} failed${why}.`, true);
-          j.invDone++;
-          emit(j);
-        }
-        if (j.invDone < j.invTotal) j.result = "cancelled";
-        else {
-          log(`${name(j)}: ${plural(j.invTotal, "flag")} investigated` +
-              (j.invLimit ? `, ${j.invLimit} at the step limit.` : "."), j.invLimit > 0);
-        }
-      }
+      j.result = await discover(j, w);
+    } catch (e) {
+      j.result = stopping ? "cancelled" : "error";
+      if (!stopping) j.errors.push({ phase: "discovery", message: e.message });
     } finally {
-      running.delete(j);
-      j.abort = null;
-      j.state = j.result;
+      running.delete(w);
+      j.state = j.result || "error";
       j.ended = Date.now();
       emit(j);
-      const what = { done: "done", step_limit: `hit the ${STEP_LIMIT}-step limit, flags so far kept`,
-                     error: "failed", cancelled: "cancelled" }[j.result];
-      log(`${name(j)}: ${what} · ${plural(j.flags, "flag")}, ${plural(j.turns, "model turn")}, ` +
-          `${clock(j.ended - j.started)}.`, j.result !== "done");
-      purge(j);
     }
+    if (j.result === "error" && j.errors.length) log(`${name(j)}: ${j.errors.at(-1).message.slice(0, 240)}`, true);
+    const what = { done: "done", step_limit: `hit the ${STEP_LIMIT}-step limit, flags so far kept`,
+                   error: "failed", cancelled: "cancelled" }[j.state];
+    log(`${name(j)}: ${what} · ${plural(j.flags, "flag")}, ${plural(j.turns, "model turn")}, ` +
+        `${clock(j.ended - j.started)}.`, j.state !== "done");
+    purge(w.conv);
+  }
+
+  async function runInv(t) {
+    const { j, n } = t;
+    const w = { j, n, conv: "eval-" + crypto.randomUUID(), abort: null };
+    running.add(w);
+    j.inv.set(n, "running");
+    let done = null, outdated = null;
+    try {
+      done = await investigate(j, w);
+    } catch (e) {
+      if (e.outdated) outdated = e;
+      else if (!stopping) {
+        j.errors.push({ phase: `investigation #${n}`, message: e.message });
+        log(`${name(j)}: the investigation of flag #${n} failed: ${e.message.slice(0, 200)}.`, true);
+      }
+    } finally {
+      running.delete(w);
+    }
+    purge(w.conv);
+    if (outdated) {
+      // Every flag would be refused the same way, so the round stops at the first.
+      // Nothing was attempted, so the flag goes back as if never picked.
+      if (!stopping) {
+        log(outdated.message, true);
+        halt();
+      }
+      unqueue(t);
+      invCounters(j);
+      return emit(j);
+    }
+    if (done && done.reason !== "completed" && done.reason !== "cancelled") {
+      log(`${name(j)}: the investigation of flag #${n} failed: ${(done.message || done.reason).slice(0, 200)}.`, true);
+    }
+    // A completed investigation closes the flag, and so does a cause recorded before
+    // the stream was cut. Anything short of that can be picked again, and reads as
+    // not investigated -- not as in flight, nor as the Runtime's "ended before a
+    // cause was recorded".
+    const issue = j.issues.get(n);
+    const ok = done?.reason === "completed" || issue?.status === "explained";
+    if (!ok && issue && issue.status !== "flagged") j.issues.set(n, { ...issue, status: "flagged", root_cause: null });
+    j.inv.set(n, ok ? "done" : "failed");
+    tally[ok ? "done" : "failed"]++;
+    invCounters(j);
+    emit(j);
+    if (j.state !== "investigating") log(sessionInvNote(name, j), j.invLimit > 0 || j.invDone < j.invTotal);
   }
 
   function pump() {
-    if (!stopped) {
+    if (phase === "discovery") {
       for (const j of order) {
-        if (running.size >= plan.parallel) break;
+        if (stopping || running.size >= plan.parallel) break;
         if (j.state === "queued" && j.after.every((k) => ended(jobs.get(k)))) {
           runJob(j).catch((e) => log(`${name(j)}: ${e.message}`, true)).finally(pump);
         }
       }
-    }
-    if (finished || running.size || ![...jobs.values()].every(ended)) return;
-    finished = true;
-    if (stopped) log("Every session has ended. What they found before the stop is in the results.");
-    else {
-      log("Every session has ended. Download the results for the scorer.");
-      onEvent({ type: "status", status: "awaiting_scoring" });
+      if (running.size || ![...jobs.values()].every(ended)) return;
+      if (!stopping) return pause();
+      phase = "finished";
+      log("Every session has ended. What they found before the stop is in the results.");
+    } else if (phase === "investigation") {
+      while (!stopping && running.size < plan.parallel && queue.length) {
+        const t = queue.shift();
+        runInv(t).catch((e) => log(`${name(t.j)}: ${e.message}`, true)).finally(pump);
+      }
+      if (running.size || queue.length) return;
+      stopping = false;
+      pause();
     }
   }
 
-  // Ask the Runtime to cancel a session's job. It says whether it found one; the
-  // stream then ends with a cancelled done event, or is cut after the grace period.
-  function stopOne(j, token, keepalive) {
+  // After discovery, and after every round: wait for a pick, unless no flag is
+  // left to pick.
+  function pause() {
+    const open = flags();
+    if (open.length) {
+      phase = "selection";
+      log(pauseNote(round, tally, open));
+      return status("awaiting_selection");
+    }
+    phase = "finished";
+    log(round ? `${roundNote(round, tally)} Every flag has been investigated. Download the results for the scorer.`
+              : "Every session has ended. Download the results for the scorer.");
+    status("awaiting_scoring");
+  }
+
+  const flags = () => openFlags(order, plan.conds, (j) => [...j.issues.values()].sort((a, b) => a.n - b.n));
+
+  // Ask the Runtime to cancel a conversation's job. It says whether it found one;
+  // the stream then ends with a cancelled done event, or is cut after the grace period.
+  function stopOne(conv, token, keepalive) {
     try {
-      fetch(runtimeUrl(), { method: "POST", headers: headers(j, token), keepalive,
-                            body: JSON.stringify({ action: "stop", conversation: j.id }) }).catch(() => {});
+      fetch(runtimeUrl(), { method: "POST", headers: headers(conv, token), keepalive,
+                            body: JSON.stringify({ action: "stop", conversation: conv }) }).catch(() => {});
     } catch { /* unload path */ }
   }
 
-  // The tab is what drives the run, so when it goes, the sessions in flight are
-  // told to stop rather than left to burn tokens no one will collect. No renewal
-  // here: an unloading page cannot wait for one.
-  window.addEventListener("pagehide", () => running.forEach((j) => stopOne(j, accessToken, true)));
+  function stopRunning() {
+    // A stream can outlast the hour-long access token, so renew first.
+    const token = freshAccessToken().catch(() => accessToken);
+    for (const w of running) {
+      token.then((t) => stopOne(w.conv, t, false));
+      setTimeout(() => w.abort?.abort(), STOP_GRACE_MS);
+    }
+  }
 
-  onEvent({ type: "status", status: "running" });
+  // Ends the round, not the run: the flags not started go back to how they were,
+  // the ones in flight are told to stop, and once they have, the run pauses.
+  function halt() {
+    stopping = true;
+    const touched = new Set();
+    for (const t of queue.splice(0)) {
+      unqueue(t);
+      touched.add(t.j);
+    }
+    for (const j of touched) {
+      invCounters(j);
+      emit(j);
+    }
+    stopRunning();
+  }
+
+  // The tab is what drives the run, so when it goes, the conversations in flight
+  // are told to stop rather than left to burn tokens no one will collect. No
+  // renewal here: an unloading page cannot wait for one.
+  window.addEventListener("pagehide", () => running.forEach((w) => stopOne(w.conv, accessToken, true)));
+
+  status("running");
   log(`Live run on the deployed Runtime. The warehouse is not reset: sessions query CDW as it stands ` +
       `(recorded as the ${plan.snapshot} set).`);
   log(`Starting ${plural(jobs.size, "discovery session")}, up to ${plan.parallel} at a time.`);
   pump();
 
   return {
+    // In discovery this ends the run. In a round of investigation it ends only the
+    // round, and the run pauses for another pick.
     stop() {
-      if (stopped || finished) return;
-      stopped = true;
-      for (const j of jobs.values()) {
-        if (j.state !== "queued") continue;
-        j.state = j.result = "cancelled";
+      if (stopping) return;
+      if (phase === "discovery") {
+        stopping = true;
+        for (const j of jobs.values()) {
+          if (j.state !== "queued") continue;
+          j.state = j.result = "cancelled";
+          emit(j);
+        }
+        stopRunning();
+        log(running.size ? `Stopping ${plural(running.size, "session")} in flight; ` +
+                           "the ones that had ended keep their flags." : "Stopped.", true);
+        status("stopped");
+        pump();
+      } else if (phase === "investigation") {
+        log(`Stopping the round: ${plural(running.size, "investigation")} in flight. Their flags, and the ` +
+            "ones not started, can be picked again.", true);
+        halt();
+        pump();
+      }
+    },
+    flags,
+    investigate(picks) {
+      if (phase !== "selection") return;
+      const q = roundQueue(picks, jobs, (j, n) => j.issues.has(n));
+      if (!q.length) return;
+      queue.push(...q);
+      phase = "investigation";
+      round++;
+      tally = { done: 0, failed: 0 };
+      for (const j of new Set(q.map((t) => t.j))) {
+        invCounters(j);
         emit(j);
       }
-      // A discovery stream can outlast the hour-long access token, so renew first.
-      const token = freshAccessToken().catch(() => accessToken);
-      for (const j of running) {
-        token.then((t) => stopOne(j, t, false));
-        const abort = j.abort;
-        setTimeout(() => abort?.abort(), STOP_GRACE_MS);
-      }
-      log(running.size ? `Stopping ${plural(running.size, "session")} in flight; ` +
-                         "the ones that had ended keep their flags." : "Stopped.", true);
-      onEvent({ type: "status", status: "stopped" });
+      log(`Round ${round}: investigating ${plural(q.length, "flag")}, up to ${plan.parallel} at a time.`);
+      status("investigating");
       pump();
+    },
+    finish() {
+      if (phase !== "selection") return;
+      phase = "finished";
+      log("Finished. Download the results for the scorer.");
+      status("awaiting_scoring");
     },
     results() {
       const iso = (t) => (t ? new Date(t).toISOString() : null);
@@ -1230,7 +1662,8 @@ function RuntimeHarness(plan, onEvent) {
         key: j.key, condition: plan.conds[j.cond].label, run: j.run,
         table: j.table === "*" ? null : j.table, kind: j.kind, session: j.id, task: j.task,
         state: j.state, started: iso(j.started), ended: iso(j.ended),
-        flags: [...j.issues.values()], discovery: j.discovery, investigations: j.investigations,
+        flags: [...j.issues.values()], picked: [...j.picked].sort((a, b) => a - b),
+        discovery: j.discovery, investigations: j.investigations,
         errors: j.errors, transcript: j.transcript,
       }));
     },
@@ -1240,32 +1673,42 @@ function RuntimeHarness(plan, onEvent) {
 // ---- MockHarness ----------------------------------------------------------------
 // Stands in for the harness the design calls for, so the monitor has something to
 // show. The contract every harness keeps:
-//   Harness(plan, onEvent) -> { stop() }, and RuntimeHarness adds results()
+//   Harness(plan, onEvent) -> { stop(), flags(), investigate(picks), finish() },
+//     and RuntimeHarness adds results()
 //   plan:  { units: [{ key, cond, run, table, kind, after }], parallel,
 //            conds: { [key]: { label, ...settings } }, snapshot, tables }
 //   onEvent receives
-//     { type: "status", status }             resetting | running | awaiting_scoring | stopped
+//     { type: "status", status }             resetting | running | awaiting_selection |
+//                                            investigating | awaiting_scoring | stopped
 //     { type: "session", key, ...counters }  a session's state and running totals
 //     { type: "log", text, bad }             one line for the activity log
-// It reports how many flags a session raised, never what they say: flag text is
-// for the scorer, which redacts test-set matches before anyone reads it.
+// When discovery is over, a run whose conditions investigate pauses at
+// awaiting_selection. flags() then lists the flags open to a pick, as
+// { key, n, title, dimension, table, column, finding, evidence };
+// investigate([{ key, n }]) starts a round of them, and finish() ends the run. A
+// round that leaves flags open pauses again. stop() ends discovery for good, but
+// in investigation it ends only the round.
+// Counts reach the monitor through onEvent, and flag text only through flags(),
+// for the pick: the rest of it is for the scorer.
 //
 // Everything under the contract is make-believe. Step counts, flag counts and
-// failure rates are random, chosen only to look like a run in motion.
+// failure rates are random and the flags are placeholders, chosen only to look
+// like a run in motion.
 function MockHarness(plan, onEvent) {
   const TICK_MS = 300;
+  const DIMS = ["conformance", "completeness", "plausibility"];
   const rnd = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
   const ended = (j) => ENDED.includes(j.state);
-  const jobs = new Map(plan.units.map((u) => [u.key, newJob(u)]));
+  const jobs = new Map(plan.units.map((u) => [u.key, { ...newJob(u), list: [] }]));
   let slots = [];               // what holds a session slot: { job } or { job, inv }
-  const invQueue = [];          // investigations waiting for a slot, one per flag
-  const investigated = new Set();
-  let timer = null, stopped = false;
+  const queue = [];             // the round's flags waiting for a slot
+  let phase = "discovery", round = 0, tally = null, timer = null;
 
   const order = startOrder([...jobs.values()], plan.conds);
-  const { runName, name } = sessionNamer(plan.conds);
+  const { name } = sessionNamer(plan.conds);
   const log = (text, bad) => onEvent({ type: "log", text, bad });
   const emit = (j) => onEvent(sessionEvent(j));
+  const status = (s) => onEvent({ type: "status", status: s });
 
   function begin(j) {
     const cap = plan.conds[j.cond].cap;
@@ -1286,10 +1729,15 @@ function MockHarness(plan, onEvent) {
     emit(j);
   }
 
-  function finish(j, result) {
+  function settle(j, result) {
     j.state = j.result = result;
     j.ended = Date.now();
     if (result === "done") j.flags = j.finalFlags;
+    // A placeholder per flag raised, for the pick.
+    j.list = Array.from({ length: j.flags }, (_, i) => ({
+      n: i + 1, title: `Simulated flag ${i + 1}`, dimension: DIMS[rnd(0, 2)],
+      table: TABLES.includes(j.table) ? j.table : null, column: null,
+      finding: "Simulated: nothing was queried.", evidence: null }));
     emit(j);
     const what = { done: "done", step_limit: `hit the ${STEP_LIMIT}-step limit, flags so far kept`,
                    error: "failed (simulated sandbox error)" }[result];
@@ -1303,8 +1751,8 @@ function MockHarness(plan, onEvent) {
     j.turns = Math.ceil(j.steps / 2);
     j.tools = Math.floor(j.steps * 0.55);
     j.flags = Math.floor(j.finalFlags * j.steps / j.target);
-    if (j.fate === "error" && j.steps >= j.failAt) return finish(j, "error");
-    if (j.steps >= j.target) return finish(j, j.fate);
+    if (j.fate === "error" && j.steps >= j.failAt) return settle(j, "error");
+    if (j.steps >= j.target) return settle(j, j.fate);
     emit(j);
     return false;
   }
@@ -1312,87 +1760,120 @@ function MockHarness(plan, onEvent) {
   function stepInvestigation(j, inv) {
     inv.steps = Math.min(inv.target, inv.steps + rnd(10, 30));
     if (inv.steps < inv.target) return false;
-    j.invDone++;
     j.turns += Math.ceil(inv.steps / 2);
     j.tools += Math.floor(inv.steps * 0.55);
     if (inv.limit) j.invLimit++;
-    if (j.invDone === j.invTotal) {
-      j.state = j.result;
-      log(`${name(j)}: ${plural(j.invTotal, "flag")} investigated` +
-          (j.invLimit ? `, ${j.invLimit} at the step limit.` : "."), j.invLimit > 0);
-    }
+    j.inv.set(inv.n, inv.fail ? "failed" : "done");
+    tally[inv.fail ? "failed" : "done"]++;
+    if (inv.fail) log(`${name(j)}: the investigation of flag #${inv.n} failed (simulated stream error).`, true);
+    invCounters(j);
+    if (j.state !== "investigating") log(sessionInvNote(name, j), j.invLimit > 0 || j.invDone < j.invTotal);
     emit(j);
     return true;
   }
 
-  // Once every discovery session of a run, synthesis included, has ended, the
-  // run's flags are queued for investigation: one per flag, each its own budget.
-  function queueInvestigations() {
-    const byRun = new Map();
-    for (const j of jobs.values()) {
-      const k = `${j.cond}|${j.run}`;
-      if (!byRun.has(k)) byRun.set(k, []);
-      byRun.get(k).push(j);
-    }
-    for (const [k, list] of byRun) {
-      if (investigated.has(k) || !plan.conds[list[0].cond].investigate || !list.every(ended)) continue;
-      investigated.add(k);
-      let n = 0;
-      for (const j of list.filter((x) => x.flags)) {
-        j.invTotal = j.flags;
-        j.state = "investigating";
-        n += j.flags;
-        for (let i = 0; i < j.flags; i++) invQueue.push(j);
-        emit(j);
-      }
-      log(`${runName(list[0])}: discovery complete, ${plural(n, "flag")} queued for investigation.`);
-    }
-  }
-
   function tick() {
     slots = slots.filter((s) => !(s.inv ? stepInvestigation(s.job, s.inv) : stepDiscovery(s.job)));
-    queueInvestigations();
-    // Free slots go to queued investigations first, since they complete a run
-    // that is otherwise finished, then to sessions whose prerequisites have ended.
-    while (slots.length < plan.parallel && invQueue.length) {
-      const limit = Math.random() < 0.08;
-      slots.push({ job: invQueue.shift(), inv: { steps: 0, target: limit ? STEP_LIMIT : rnd(30, 200), limit } });
-    }
-    for (const j of order) {
-      if (slots.length >= plan.parallel) break;
-      if (j.state === "queued" && j.after.every((k) => ended(jobs.get(k)))) begin(j);
-    }
-    if (!slots.length && !invQueue.length && [...jobs.values()].every(ended)) {
-      clearInterval(timer);
-      log("Every session has ended. The flags are ready for the scorer.");
-      onEvent({ type: "status", status: "awaiting_scoring" });
+    if (phase === "discovery") {
+      for (const j of order) {
+        if (slots.length >= plan.parallel) break;
+        if (j.state === "queued" && j.after.every((k) => ended(jobs.get(k)))) begin(j);
+      }
+      if (!slots.length && [...jobs.values()].every(ended)) pause();
+    } else if (phase === "investigation") {
+      while (slots.length < plan.parallel && queue.length) {
+        const { j, n } = queue.shift();
+        const limit = Math.random() < 0.08;
+        j.inv.set(n, "running");
+        slots.push({ job: j, inv: { n, steps: 0, target: limit ? STEP_LIMIT : rnd(30, 200), limit,
+                                    fail: Math.random() < 0.03 } });
+      }
+      if (!slots.length && !queue.length) pause();
     }
   }
 
-  onEvent({ type: "status", status: "resetting" });
+  function pause() {
+    clearInterval(timer);
+    const open = flags();
+    if (open.length) {
+      phase = "selection";
+      log(pauseNote(round, tally, open));
+      return status("awaiting_selection");
+    }
+    phase = "finished";
+    log(round ? `${roundNote(round, tally)} Every flag has been investigated. The flags are ready for the scorer.`
+              : "Every session has ended. The flags are ready for the scorer.");
+    status("awaiting_scoring");
+  }
+
+  const flags = () => openFlags(order, plan.conds, (j) => j.list);
+
+  status("resetting");
   log(`Resetting the warehouse to snapshots/${plan.snapshot} (simulated).`);
   const resetTimer = setTimeout(() => {
-    onEvent({ type: "status", status: "running" });
+    status("running");
     log("Warehouse reset. Discovery started.");
     timer = setInterval(tick, TICK_MS);
   }, 2000);
 
   return {
     stop() {
-      if (stopped) return;
-      stopped = true;
-      clearTimeout(resetTimer);
-      clearInterval(timer);
-      for (const j of jobs.values()) {
-        if (ended(j)) continue;
-        j.state = "cancelled";
-        j.ended = j.ended || Date.now();
+      if (phase === "discovery") {
+        phase = "finished";
+        clearTimeout(resetTimer);
+        clearInterval(timer);
+        for (const j of jobs.values()) {
+          if (ended(j)) continue;
+          j.state = "cancelled";
+          j.ended = j.ended || Date.now();
+          emit(j);
+        }
+        slots = [];
+        log("Stopped. Sessions in flight were cancelled; the ones that had ended keep their flags.", true);
+        status("stopped");
+      } else if (phase === "investigation") {
+        clearInterval(timer);
+        const touched = new Set();
+        for (const { job, inv } of slots) {
+          job.inv.set(inv.n, "failed");
+          tally.failed++;
+          touched.add(job);
+        }
+        for (const t of queue.splice(0)) {
+          unqueue(t);
+          touched.add(t.j);
+        }
+        slots = [];
+        for (const j of touched) {
+          invCounters(j);
+          emit(j);
+        }
+        log("Stopped the round. Its flags in flight, and the ones not started, can be picked again.", true);
+        pause();
+      }
+    },
+    flags,
+    investigate(picks) {
+      if (phase !== "selection") return;
+      const q = roundQueue(picks, jobs, (j, n) => n >= 1 && n <= j.list.length);
+      if (!q.length) return;
+      queue.push(...q);
+      phase = "investigation";
+      round++;
+      tally = { done: 0, failed: 0 };
+      for (const j of new Set(q.map((t) => t.j))) {
+        invCounters(j);
         emit(j);
       }
-      slots = [];
-      invQueue.length = 0;
-      log("Stopped. Sessions in flight were cancelled; the ones that had ended keep their flags.", true);
-      onEvent({ type: "status", status: "stopped" });
+      log(`Round ${round}: investigating ${plural(q.length, "flag")} (simulated).`);
+      status("investigating");
+      timer = setInterval(tick, TICK_MS);
+    },
+    finish() {
+      if (phase !== "selection") return;
+      phase = "finished";
+      log("Finished. The flags are ready for the scorer.");
+      status("awaiting_scoring");
     },
   };
 }

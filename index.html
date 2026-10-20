@@ -441,9 +441,27 @@
   .ev-runhead .rid { color: var(--muted); font-family: var(--font-mono); font-size: 0.75rem; font-weight: 400; }
   .ev-elapsed { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
   .ev-stop { margin-left: auto; background: var(--card); border-color: var(--err); color: var(--err); }
-  .r-resetting .pill, .r-running .pill { color: var(--accent); }
+  .r-resetting .pill, .r-running .pill, .r-investigating .pill { color: var(--accent); }
+  .r-awaiting_selection .pill { color: var(--text); }
   .r-awaiting_scoring .pill { color: var(--ok); }
   .r-stopped .pill { color: var(--muted); }
+  /* The pause between the phases. The flags reuse the chat's issue cards
+     (details.issue in an ol.issues), grouped by session. */
+  .ev-pick { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+             padding: 10px 12px; margin: 0 0 14px; }
+  .ev-pick h4 { margin: 0 0 4px; font-size: 0.875rem; font-weight: 600; }
+  .ev-pick .lead { margin: 0 0 8px; font-size: 0.8125rem; }
+  .ev-picktools, .ev-pickgo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .ev-pickcount { margin: 0; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ev-pickall, .ev-finish { background: var(--card); border-color: var(--border); color: var(--text); }
+  details.ev-pickflags { margin: 6px 0 10px; }
+  details.ev-pickflags > summary { cursor: pointer; line-height: 44px; font-size: 0.8125rem; }
+  .ev-pickgroups { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+                   gap: 6px 14px; }
+  .ev-pickgroup { margin: 0; padding: 0; border: 0; min-width: 0; }
+  .ev-pickgroup legend { padding: 0; font-family: var(--font-mono); font-size: 0.75rem; }
+  .ev-pick .ev-check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--btn-border); }
+  .ev-pick .ev-help { margin-top: 8px; }
   .ev-chips { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
   .ev-chips li { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px;
                  font-size: 0.6875rem; color: var(--muted); }
@@ -883,8 +901,8 @@
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
             </div>
             <div class="ev-field">
-              <label class="ev-check"><input type="checkbox" id="evInvestigate"> Investigate every flag</label>
-              <p class="ev-help">The harness sends every flag to investigation, so no person's choice shapes attribution. E1 and E4 only; each investigation gets its own step budget.</p>
+              <label class="ev-check"><input type="checkbox" id="evInvestigate"> Pause after discovery to investigate</label>
+              <p class="ev-help">When every discovery session has ended, the run pauses and you pick the flags to investigate, each with its own step budget. E1 and E4 call for all of them, so no one's choice shapes attribution.</p>
             </div>
             <div class="ev-field">
               <span class="lbl" id="evSnapLbl">Snapshot set</span>
@@ -943,10 +961,10 @@
             <li><strong>Reset.</strong> The warehouse is reset to the chosen snapshot set, so every run starts from the same data. The console does not do this yet: reset it with cdw-synthetic before a live run.</li>
             <li><strong>Discover.</strong> Each table gets its own discovery session: a new conversation and sandbox with no memory of the others. Sessions run in parallel, up to the limit you set.</li>
             <li><strong>Synthesize (optional).</strong> One more session per run gets the merged flags and a budget for cross-table checks.</li>
-            <li><strong>Investigate (E1 and E4).</strong> The harness sends every flag to investigation; no one picks.</li>
+            <li><strong>Pick, then investigate (optional).</strong> When discovery is over, the run pauses for you to pick which flags to investigate. E1 and E4 take all of them. Each picked flag gets its own conversation and step budget. After each round you can pick more, or finish.</li>
             <li><strong>Score.</strong> The scorer merges the flags, matches each to at most one planted defect, and grades credit from detection up to repair.</li>
           </ol>
-          <p class="foot">Only flag counts are shown while a run is live. Flag text waits for the scorer, which redacts matches to held-out defects first, and until the freeze it reports the dev split only.</p>
+          <p class="foot">Only counts are shown while sessions run. The flag list at the pause is unredacted. The scorer redacts matches to held-out defects before anyone reads its output, and until the freeze it reports the dev split only.</p>
         </div>
         <div id="evMonitor" hidden></div>
       </section>
@@ -959,7 +977,7 @@
   <footer class="sitefoot">
     <span>Content owner: <a href="mailto:big.arc@uth.tmc.edu">BIG-Arc</a></span>
     <a href="https://sbmi.uth.edu/" target="_blank" rel="noopener">McWilliams School of Biomedical Informatics<span class="sr-only"> (opens in a new tab)</span></a>
-    <span>Last revised <time id="revdate" datetime="2026-10-19">October 19, 2026</time></span>
+    <span>Last revised <time id="revdate" datetime="2026-10-20">October 20, 2026</time></span>
     <a href="https://www.uth.edu/campus-carry/" target="_blank" rel="noopener">Campus Carry<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uthealthemergency.org/" target="_blank" rel="noopener">Emergency Information<span class="sr-only"> (opens in a new tab)</span></a>
     <a href="https://www.uth.edu/index/policies.htm" target="_blank" rel="noopener">Site Policies &amp; Required Links<span class="sr-only"> (opens in a new tab)</span></a>
