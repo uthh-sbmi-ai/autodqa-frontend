@@ -67,7 +67,7 @@ const STEP_LIMIT = 250;        // per session and per investigation (AUTODQA_STE
 
 // The anchor for every comparison. Each experiment changes one thing from it.
 const REFERENCE = { model: CFG.model, prompt: "K1", cap: 10, tools: "all",
-                    workflow: "per_table", investigate: false, snapshot: "injected" };
+                    workflow: "per_table", investigate: false, snapshot: "injected", known_issues: "off" };
 const REF_RUNS = 3;
 const REF_PARALLEL = 8;
 
@@ -275,6 +275,7 @@ function applyPreset(key) {
   $("evTools").value = s.tools;
   $("evWorkflow").value = s.workflow;
   $("evInvestigate").checked = s.investigate;
+  $("evKnown").checked = s.known_issues !== "off";
   setRadio("evSnapshot", s.snapshot);
   $("evRunCount").value = p.runs || REF_RUNS;
   $("evPresetHelp").textContent = p.help;
@@ -305,6 +306,7 @@ function readForm() {
     model: $("evModel").value.trim(), prompt: radio("evPrompt"), cap: Number(radio("evCap")),
     tools: $("evTools").value, workflow: $("evWorkflow").value,
     investigate: $("evInvestigate").checked, snapshot: radio("evSnapshot"),
+    known_issues: $("evKnown").checked ? $("evKnown").value : "off",
   };
   if (mode === "live") for (const [k, { value }] of Object.entries(LIVE_FIXED)) base[k] = value;
   const p = PRESETS[preset];
@@ -370,6 +372,9 @@ function describeDiff(f) {
   }
   if (b.investigate !== REFERENCE.investigate) out.push(b.investigate ? "an investigation phase" : "no investigation");
   if (b.snapshot !== REFERENCE.snapshot) out.push(`${b.snapshot} snapshot set`);
+  if (b.known_issues !== REFERENCE.known_issues) {
+    out.push(b.known_issues === "off" ? "no known-issues list" : `the ${b.known_issues} known-issues list`);
+  }
   if (f.tables.length !== TABLES.length) out.push(`${f.tables.length} of ${TABLES.length} tables`);
   const lead = p.axis ? `Varies the ${AXIS_NAMES[p.axis]} over ${plural(f.conds.length, "condition")}. ` : "";
   const tail = f.mode === "live" ? " The prompt is the deployed one, not K1." : "";
@@ -709,7 +714,8 @@ function chips(ev) {
   if (axis !== "tools") add(optText("evTools", b.tools));
   if (axis !== "workflow") add(optText("evWorkflow", b.workflow));
   add(b.investigate ? "Investigation of picked flags" : "Detection only");
-  add(`Snapshot: ${b.snapshot}${ev.mode === "live" ? " (recorded, not reset)" : ""}`);
+  add(b.known_issues === "off" ? "No known-issues list" : `Known issues: ${b.known_issues}`);
+  add(`Snapshot:${b.snapshot}${ev.mode === "live" ? " (recorded, not reset)" : ""}`);
   add(`${ev.f.tables.length} of ${TABLES.length} tables`);
   add(`${plural(ev.f.runs, "run")} per condition`);
   add(`${ev.f.parallel} in parallel`);
@@ -1316,7 +1322,7 @@ function RuntimeHarness(plan, onEvent) {
   const ended = (j) => ENDED.includes(j.state);
   const jobs = new Map(plan.units.map((u) => [u.key, {
     ...newJob(u), task: null, issues: new Map(), transcript: [], errors: [],
-    discovery: null, investigations: [] }]));
+    discovery: null, investigations: [], known: null }]));
   const order = startOrder([...jobs.values()], plan.conds);
   const { name } = sessionNamer(plan.conds);
   const log = (text, bad) => onEvent({ type: "log", text, bad });
@@ -1329,6 +1335,10 @@ function RuntimeHarness(plan, onEvent) {
   let phase = "discovery";        // discovery | selection | investigation | finished
   let stopping = false;           // the current phase was asked to stop
   let round = 0, tally = null;
+  // Known-issues list -> the version the Runtime reported at launch. Every session
+  // names it, so a redeploy with another version partway through is refused by the
+  // Runtime instead of mixing two lists in one evaluation.
+  const known = new Map();
 
   // The design doc's per-table task, word for word, so live runs match what will be
   // frozen. The doc gives no whole-warehouse text; this one follows its pattern.
@@ -1397,19 +1407,32 @@ function RuntimeHarness(plan, onEvent) {
     tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max,
     thread_messages: d.thread_messages, runtime_session: d.session });
 
+  // With a known-issues list, the Runtime appends the session's slice of it -- the
+  // entries for j.table, or every entry for "*" -- to the task, and says which ids
+  // it showed before any model call.
   async function discover(j, w) {
     let done = null;
-    await call(w, { task: j.task }, (e) => {
+    const list = plan.conds[j.cond].known_issues;
+    const body = list === "off" ? { task: j.task }
+      : { task: j.task, table: j.table, known_issues: { list, version: known.get(list) } };
+    await call(w, body, (e) => {
       if (e.type === "issue") {
         j.issues.set(e.issue.n, e.issue);
         j.flags = j.issues.size;
+      } else if (e.type === "known_issues") {
+        j.known = { list: e.list, version: e.version, table: e.table, ids: e.ids };
+        return;
       } else if (e.type === "done") {
         done = e;
         return;
       } else if (!common(j, "discovery", e)) return;   // trace, heartbeat, sandbox
       emit(j);
     });
-    if (!done) throw new Error("the stream ended without saying why");
+    // A request the Runtime refuses (a list or version it does not have) gets one
+    // error event before any model turn, and no done: that error is the reason.
+    const refused = !j.turns && j.errors.at(-1)?.message;
+    if (!done) throw new Error(refused || "the stream ended without saying why");
+    if (list !== "off" && !j.known) throw new Error("the Runtime ran the session without the known-issues list");
     j.discovery = doneStats(done);
     return { completed: "done", step_limit: "step_limit", cancelled: "cancelled" }[done.reason] || "error";
   }
@@ -1463,7 +1486,7 @@ function RuntimeHarness(plan, onEvent) {
       j.result = await discover(j, w);
     } catch (e) {
       j.result = stopping ? "cancelled" : "error";
-      if (!stopping) j.errors.push({ phase: "discovery", message: e.message });
+      if (!stopping && j.errors.at(-1)?.message !== e.message) j.errors.push({ phase: "discovery", message: e.message });
     } finally {
       running.delete(w);
       j.state = j.result || "error";
@@ -1603,11 +1626,53 @@ function RuntimeHarness(plan, onEvent) {
   // renewal here: an unloading page cannot wait for one.
   window.addEventListener("pagehide", () => running.forEach((w) => stopOne(w.conv, accessToken, true)));
 
+  // The known-issues lists the Runtime carries. One from before 2026-10-20 takes the
+  // question for a discovery request with no task, and answers with an error.
+  async function knownLists() {
+    const w = { conv: "eval-" + crypto.randomUUID(), abort: null };
+    let lists = null;
+    await call(w, { action: "known_issues" }, (e) => { if (e.type === "known_issues") lists = e.lists; });
+    if (!lists) {
+      throw new Error("The deployed Runtime cannot show a known-issues list yet. Deploy agentcore-runtime " +
+                      "(2026-10-20 or later), or launch with the list off.");
+    }
+    return lists;
+  }
+
+  // A run with a known-issues list starts once the Runtime has said which version it
+  // holds. Without one, nothing is asked and the run starts as before.
+  async function start() {
+    const wanted = new Set(Object.values(plan.conds).map((c) => c.known_issues).filter((k) => k !== "off"));
+    if (wanted.size) {
+      try {
+        const have = await knownLists();
+        for (const name of wanted) {
+          const l = have.find((x) => x.list === name);
+          if (!l) throw new Error(`The deployed Runtime has no known-issues list “${name}”.`);
+          known.set(name, l.version);
+          log(`Each session is shown ${name} v${l.version}, the entries for its table ` +
+              `(${plural(l.entries, "entry", "entries")} in all).`);
+        }
+      } catch (e) {
+        if (stopping) return;
+        log(`Not started: ${e.message}`, true);
+        for (const j of jobs.values()) {
+          j.state = j.result = "cancelled";
+          emit(j);
+        }
+        phase = "finished";
+        return status("stopped");
+      }
+    }
+    if (stopping) return;
+    log(`Starting ${plural(jobs.size, "discovery session")}, up to ${plan.parallel} at a time.`);
+    pump();
+  }
+
   status("running");
   log(`Live run on the deployed Runtime. The warehouse is not reset: sessions query CDW as it stands ` +
       `(recorded as the ${plan.snapshot} set).`);
-  log(`Starting ${plural(jobs.size, "discovery session")}, up to ${plan.parallel} at a time.`);
-  pump();
+  start();
 
   return {
     // In discovery this ends the run. In a round of investigation it ends only the
@@ -1663,7 +1728,7 @@ function RuntimeHarness(plan, onEvent) {
         table: j.table === "*" ? null : j.table, kind: j.kind, session: j.id, task: j.task,
         state: j.state, started: iso(j.started), ended: iso(j.ended),
         flags: [...j.issues.values()], picked: [...j.picked].sort((a, b) => a - b),
-        discovery: j.discovery, investigations: j.investigations,
+        known_issues: j.known, discovery: j.discovery, investigations: j.investigations,
         errors: j.errors, transcript: j.transcript,
       }));
     },
