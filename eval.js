@@ -197,53 +197,23 @@ $("evTablesAll").addEventListener("click", () => {
 });
 
 let preset = "ref";
-let mode = "live";
+// Every run goes to the deployed Runtime. The simulated harness below is not
+// reachable from the form; `mode` stays in the results so files compare.
+const mode = "live";
 
-// Live or simulated. A live run cannot pick what it cannot run, so the presets and
+// The console cannot pick what the Runtime cannot run, so the presets and
 // workflows it lacks are disabled (and say why in their text), and the settings
-// the Runtime fixes are shown instead of offered. Switching back restores both.
+// the Runtime fixes are shown instead of offered.
 const presetOpts = [...$("evPreset").options];
 const workflowOpts = [...$("evWorkflow").options];
-for (const o of [...presetOpts, ...workflowOpts]) {
-  o.dataset.text = o.textContent;
-  o.dataset.off = String(o.disabled);
-}
-
-function applyMode(m) {
-  mode = m;
-  const live = m === "live";
-  const gate = (opts, ok) => opts.forEach((o) => {
-    const blocked = live && !ok(o.value) && o.dataset.off === "false";
-    o.disabled = o.dataset.off === "true" || blocked;
-    o.textContent = o.dataset.text + (blocked ? " (simulated only)" : "");
-  });
-  gate(presetOpts, (v) => LIVE_PRESETS.has(v));
-  gate(workflowOpts, (v) => LIVE_WORKFLOWS.has(v));
-  if (live && !LIVE_WORKFLOWS.has($("evWorkflow").value)) $("evWorkflow").value = REFERENCE.workflow;
-
-  $("evModeHelp").textContent = live
-    ? "Every session is a real conversation with the deployed Runtime, so its model calls go through " +
-      "the Cloudflare AI Gateway and are billed. This tab drives the run: keep it open until the run ends."
-    : "Plays a run in this browser with random numbers, for reviewing the design. Nothing is sent anywhere.";
-  $("evNoticeHead").textContent = live ? "Live run" : "Simulated run";
-  $("evNoticeText").textContent = live
-    ? "The console does not reset the warehouse yet: sessions query CDW as it stands, and the snapshot set " +
-      "you name is recorded with the results, not applied. Results stay in this tab until you download them."
-    : "Every number is random and nothing is sent to the runtime.";
-  $("evSnapLbl").textContent = live ? "Snapshot set loaded now" : "Snapshot set";
-  $("evSnapHelp").textContent = live
-    ? "Which set the warehouse holds. Recorded, not applied: reset it with cdw-synthetic before launching."
-    : "The harness resets the warehouse to this set before the first session. The holdout set opens after the freeze.";
-  $("evLaunch").textContent = live ? "Launch live evaluation" : "Launch simulated evaluation";
-
-  if (live && !LIVE_PRESETS.has(preset)) {
-    $("evPreset").value = "ref";
-    applyPreset("ref");
-  } else {
-    syncFields();
-    refresh();
-  }
-}
+for (const o of [...presetOpts, ...workflowOpts]) o.dataset.text = o.textContent;
+const gate = (opts, ok) => opts.forEach((o) => {
+  if (o.disabled || ok(o.value)) return;
+  o.disabled = true;
+  o.textContent += " (not live yet)";
+});
+gate(presetOpts, (v) => LIVE_PRESETS.has(v));
+gate(workflowOpts, (v) => LIVE_WORKFLOWS.has(v));
 
 // Which control each setting shows: its own, the Conditions box when the
 // experiment varies it, or a line naming what the deployed Runtime uses.
@@ -337,7 +307,7 @@ function problems(f) {
     return "Only the reference condition and custom runs can go to the deployed Runtime so far.";
   }
   if (f.mode === "live" && !LIVE_WORKFLOWS.has(f.base.workflow)) {
-    return "The synthesis and chained workflows can only be simulated: their harness is not built.";
+    return "The synthesis and chained workflows cannot run yet: their harness is not built.";
   }
   if (!f.conds.length) return p.axis === "model" ? "List at least one model ID." : "Tick at least one condition.";
   // "Pinned by full model ID": an alias or a family name could resolve to a
@@ -436,8 +406,7 @@ function refresh() {
 }
 
 $("evPreset").addEventListener("change", () => applyPreset($("evPreset").value));
-document.querySelectorAll('input[name="evMode"]').forEach((r) => r.addEventListener("change", () => applyMode(r.value)));
-$("evForm").addEventListener("input", (e) => { if (e.target.id !== "evPreset" && e.target.name !== "evMode") refresh(); });
+$("evForm").addEventListener("input", (e) => { if (e.target.id !== "evPreset") refresh(); });
 $("evForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const f = readForm();
@@ -477,9 +446,7 @@ function confirmRound(ev, k) {
 $("evModels").value = CFG.model;
 $("evTag").value = "untagged";
 $("evParallel").value = REF_PARALLEL;
-setRadio("evMode", mode);
 applyPreset("ref");
-applyMode(mode);
 setEvalFormShown(false);
 
 // ---- Evaluations ----------------------------------------------------------------

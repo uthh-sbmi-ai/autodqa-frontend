@@ -374,8 +374,8 @@
   .ev-rail { width: clamp(320px, 28vw, 420px); flex: none; border-right: 1px solid var(--rule);
              background: var(--panel); overflow: auto; padding: 14px 14px 24px; }
   .ev-monitor { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px 24px; }
-  .ev-rail h2, .ev-monitor h2 { font-size: 0.6875rem; color: var(--muted); margin: 0 0 4px;
-                                text-transform: uppercase; letter-spacing: .6px; }
+  .ev-monitor h2 { font-size: 0.6875rem; color: var(--muted); margin: 0 0 4px;
+                   text-transform: uppercase; letter-spacing: .6px; }
   .ev-monitor .welcome { max-width: 760px; }
   .ev-monitor .welcome h3 { margin: 0 0 8px; font-size: 0.9375rem; font-weight: 600; }
   .ev-signin { color: var(--accent); font-size: 0.8125rem; margin: 0; }
@@ -786,29 +786,19 @@
   </div>
 
   <!-- The Evaluation view: launch a batch of discovery sessions and watch it run,
-       as laid out in the AutoDQA Evaluation Design doc. A run either goes to the
-       deployed Runtime (live, driven from this tab) or is simulated in the browser
-       for design review; see eval.js. The form is markup, not script-built, so
+       as laid out in the AutoDQA Evaluation Design doc. Every run goes to the
+       deployed Runtime and is driven from this tab; see eval.js. The form is
+       markup, not script-built, so
        every control's label is in the page source; eval.js adds only the table
        checkboxes and the per-experiment conditions. -->
   <div id="evalBody" role="tabpanel" aria-labelledby="tabEval" hidden>
     <!-- Its own <main>: HTML allows one visible main, so eval.js gives the
          inactive view's main `hidden` as well and points the skip link here. -->
     <main class="eval" id="evMain" tabindex="-1" hidden>
-      <section class="ev-rail" aria-labelledby="evFormHead">
-        <h2 id="evFormHead">New evaluation</h2>
-        <p class="cap">Each run gives every selected table its own discovery session. Every setting is held fixed except the one the experiment varies.</p>
+      <section class="ev-rail" aria-label="New evaluation">
         <p class="ev-signin" id="evSignin">Sign in at the top of the page to configure and launch an evaluation.</p>
         <!-- Hidden and inert until sign-in, for the reasons given on #taskForm. -->
         <form class="ev-form" id="evForm" hidden inert novalidate>
-          <div class="ev-field">
-            <span class="lbl" id="evModeLbl">Run on</span>
-            <div class="ev-choice ev-stack" role="radiogroup" aria-labelledby="evModeLbl" aria-describedby="evModeHelp">
-              <label><input type="radio" name="evMode" value="live"> The deployed Runtime (live)</label>
-              <label><input type="radio" name="evMode" value="sim"> This browser (simulated)</label>
-            </div>
-            <p class="ev-help" id="evModeHelp"></p>
-          </div>
           <div class="ev-field">
             <label for="evPreset">Experiment</label>
             <!-- E6 and E7 stay listed so the set matches the design doc, but cannot
@@ -909,12 +899,12 @@
               <p class="ev-help" id="evKnownHelp">Each session is told the clean-baseline entries for its table, with their baseline counts, and flags one only if its count differs. A live run uses the version on the deployed Runtime and records it with each session.</p>
             </div>
             <div class="ev-field">
-              <span class="lbl" id="evSnapLbl">Snapshot set</span>
+              <span class="lbl" id="evSnapLbl">Snapshot set loaded now</span>
               <div class="ev-choice" role="radiogroup" aria-labelledby="evSnapLbl" aria-describedby="evSnapHelp">
                 <label><input type="radio" name="evSnapshot" value="injected"> Injected</label>
                 <label><input type="radio" name="evSnapshot" value="clean"> Clean</label>
               </div>
-              <p class="ev-help" id="evSnapHelp"></p>
+              <p class="ev-help" id="evSnapHelp">Which set the warehouse holds. Recorded, not applied: reset it with cdw-synthetic before launching.</p>
             </div>
             <div class="ev-field">
               <label for="evTag">System tag</label>
@@ -944,13 +934,12 @@
 
           <p class="ev-summary" id="evDiff"></p>
           <p class="ev-summary" id="evScale"></p>
-          <!-- Text set by eval.js: it depends on whether the run is live or simulated. -->
           <div class="notice">
-            <h3 id="evNoticeHead"></h3>
-            <p id="evNoticeText"></p>
+            <h3>Live run</h3>
+            <p>The console does not reset the warehouse yet: sessions query CDW as it stands, and the snapshot set you name is recorded with the results, not applied. Results stay in this tab until you download them.</p>
           </div>
           <p class="ev-err" id="evErr" role="alert"></p>
-          <button id="evLaunch" type="submit">Launch evaluation</button>
+          <button id="evLaunch" type="submit">Launch live evaluation</button>
         </form>
       </section>
 
