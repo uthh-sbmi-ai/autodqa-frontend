@@ -406,9 +406,6 @@
      rather than being shown disabled: a disabled control is visible but cannot
      be reached by keyboard (the accessibility review's point about #taskForm). */
   .ev-varied { margin: 0; font-size: 0.75rem; color: var(--accent); }
-  /* Same idea for a setting a live run cannot change: the deployed Runtime fixes
-     it, so the field says what it is instead of offering a control. */
-  .ev-fixed { margin: 0; font-size: 0.75rem; color: var(--text); word-break: break-word; }
   /* A live run's download, under its chips. Secondary, like New chat: it saves
      what the run found, it does not start anything. */
   .ev-resultsbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -4px 0 14px; }
@@ -836,12 +833,26 @@
             <legend>Settings</legend>
             <div class="ev-field" data-axis="model">
               <label for="evModel">Model</label>
+              <!-- The models the deployed Runtime accepts (agent.py MODELS). A value
+                   it does not list is refused at launch. -->
               <div class="ev-ctl">
-                <input id="evModel" type="text" spellcheck="false" autocomplete="off" aria-describedby="evModelHelp">
-                <p class="ev-help" id="evModelHelp">Full Bedrock model ID.</p>
+                <select id="evModel">
+                  <optgroup label="Anthropic">
+                    <option value="us.anthropic.claude-opus-5-5">Claude Opus 5.5</option>
+                    <option value="us.anthropic.claude-opus-5">Claude Opus 5</option>
+                    <option value="us.anthropic.claude-sonnet-5-5">Claude Sonnet 5.5</option>
+                    <option value="us.anthropic.claude-sonnet-5">Claude Sonnet 5</option>
+                    <option value="us.anthropic.claude-haiku-5-5">Claude Haiku 5.5</option>
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    <option value="us.openai.gpt-6.1-sol">GPT-6.1 Sol</option>
+                    <option value="us.openai.gpt-6-sol">GPT-6 Sol</option>
+                    <option value="us.openai.gpt-6.1-terra">GPT-6.1 Terra</option>
+                    <option value="us.openai.gpt-6-luna">GPT-6 Luna</option>
+                  </optgroup>
+                </select>
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
-              <p class="ev-fixed" hidden></p>
             </div>
             <div class="ev-field" data-axis="prompt">
               <span class="lbl" id="evPromptLbl">Prompt</span>
@@ -852,7 +863,6 @@
                 </div>
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
-              <p class="ev-fixed" hidden></p>
             </div>
             <div class="ev-field" data-axis="cap">
               <span class="lbl" id="evCapLbl">Issue cap per session</span>
@@ -863,7 +873,6 @@
                 </div>
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
-              <p class="ev-fixed" hidden></p>
             </div>
             <div class="ev-field">
               <label class="ev-check"><input type="checkbox" id="evInvestigate"> Pause after discovery to investigate</label>
@@ -886,7 +895,7 @@
               <input id="evTag" type="text" spellcheck="false" autocomplete="off" aria-describedby="evTagHelp">
               <p class="ev-help" id="evTagHelp">Recorded with every run. Test and holdout scores need a frozen tag such as eval-v1.</p>
             </div>
-            <p class="ev-help">Fixed for every run: temperature 0, and 250 graph steps per session and per investigation.</p>
+            <p class="ev-help">Fixed for every run: 250 graph steps per session and per investigation. None of these models takes a temperature, so each samples at its own default.</p>
           </fieldset>
 
           <fieldset>
