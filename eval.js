@@ -73,18 +73,19 @@ const REF_PARALLEL = 8;
 
 const AXIS_NAMES = { model: "model", prompt: "prompt", cap: "issue cap", tools: "tools", workflow: "workflow" };
 
-// What a live run can change. Each experiment varies something the deployed
-// Runtime holds fixed (or, for E2's synthesis and chained workflows, needs a
-// harness that is not built), so only the single-condition presets go live, and
-// the settings below are shown as what the Runtime uses rather than offered.
-const LIVE_PRESETS = new Set(["ref", "custom"]);
-const LIVE_WORKFLOWS = new Set(["per_table", "whole"]);
+// What a live run can change. A request sets the prompt variant and the cap, so E3
+// and E5 go live; the other experiments vary something the deployed Runtime holds
+// fixed, or (E2's synthesis and chained workflows) need a harness that is not
+// built. The model is shown as what the Runtime uses rather than offered.
+const LIVE_PRESETS = new Set(["ref", "E3", "E5", "custom"]);
 const LIVE_FIXED = {
   model: { value: CFG.model, text: `${CFG.model}, set on the deployed Runtime.` },
-  prompt: { value: "deployed", text: "The deployed discovery prompt. It has no Kahn block yet, so it is neither K0 nor K1." },
-  cap: { value: 10, text: "10, set on the deployed Runtime (AUTODQA_MAX_ISSUES)." },
-  tools: { value: "all", text: "All tools. The deployed Runtime cannot withhold one yet." },
 };
+// Tools and workflow are not on the form: every live session has all tools and
+// works on one table. E2 and E4 still vary them, so their names are kept here.
+const TOOLS_TEXT = { all: "All tools", no_valuesets: "No get_valuesets", no_etl: "Investigation without ETL tools" };
+const WORKFLOW_TEXT = { per_table: "Per table, independent", synthesis: "Per table, plus a synthesis pass",
+                        chained: "Per table, chained with carryover", whole: "One whole-warehouse session" };
 
 // Mean cost of a Sonnet 4.5 discovery session, and of investigating one flag, as
 // measured on ev-1 (2026-10-19, Runtime v22, prompt caching on) from the
@@ -98,8 +99,7 @@ const COST = { model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", discovery:
 // `set` is anything else it moves off the reference. E1 and C vary the model over
 // the free-text list instead of a fixed set.
 const PRESETS = {
-  ref: { help: "Per-table workflow, K1 prompt, cap 10, the reference model, detection only. " +
-               "Every experiment changes one thing from it." },
+  ref: {},
   E1: { axis: "model", set: { investigate: true },
         help: "Detection and attribution against cost, by model. Every flag is investigated: pick all " +
               "of them at the pause. Scored on test and holdout, all five credit levels." },
@@ -145,7 +145,6 @@ const fmt = (n) => n.toLocaleString("en-US");
 const usd = (x) => "$" + (x < 100 ? x.toFixed(2) : fmt(Math.round(x)));
 const plural = (n, word, many = word + "s") => `${fmt(n)} ${n === 1 ? word : many}`;
 const sum = (list, k) => list.reduce((a, s) => a + s[k], 0);
-const optText = (id, v) => $(id).querySelector(`option[value="${v}"]`).textContent;
 const radio = (name) => document.querySelector(`input[name="${name}"]:checked`)?.value;
 const setRadio = (name, v) => document.querySelectorAll(`input[name="${name}"]`)
   .forEach((r) => { r.checked = r.value === String(v); });
@@ -201,19 +200,16 @@ let preset = "ref";
 // reachable from the form; `mode` stays in the results so files compare.
 const mode = "live";
 
-// The console cannot pick what the Runtime cannot run, so the presets and
-// workflows it lacks are disabled (and say why in their text), and the settings
-// the Runtime fixes are shown instead of offered.
+// The console cannot pick what the Runtime cannot run, so the presets it lacks are
+// disabled (and say why in their text), and the settings the Runtime fixes are
+// shown instead of offered.
 const presetOpts = [...$("evPreset").options];
-const workflowOpts = [...$("evWorkflow").options];
-for (const o of [...presetOpts, ...workflowOpts]) o.dataset.text = o.textContent;
-const gate = (opts, ok) => opts.forEach((o) => {
-  if (o.disabled || ok(o.value)) return;
+for (const o of presetOpts) {
+  o.dataset.text = o.textContent;
+  if (o.disabled || LIVE_PRESETS.has(o.value)) continue;
   o.disabled = true;
   o.textContent += " (not live yet)";
-});
-gate(presetOpts, (v) => LIVE_PRESETS.has(v));
-gate(workflowOpts, (v) => LIVE_WORKFLOWS.has(v));
+}
 
 // Which control each setting shows: its own, the Conditions box when the
 // experiment varies it, or a line naming what the deployed Runtime uses.
@@ -242,13 +238,12 @@ function applyPreset(key) {
   $("evModel").value = s.model;
   setRadio("evPrompt", s.prompt);
   setRadio("evCap", s.cap);
-  $("evTools").value = s.tools;
-  $("evWorkflow").value = s.workflow;
   $("evInvestigate").checked = s.investigate;
   $("evKnown").checked = s.known_issues !== "off";
   setRadio("evSnapshot", s.snapshot);
   $("evRunCount").value = p.runs || REF_RUNS;
-  $("evPresetHelp").textContent = p.help;
+  $("evPresetHelp").textContent = p.help || "";
+  $("evPresetHelp").hidden = !p.help;
 
   syncFields();
   $("evConds").hidden = !p.axis;
@@ -274,7 +269,7 @@ const modelLines = () => [...new Set($("evModels").value.split("\n").map((l) => 
 function readForm() {
   const base = {
     model: $("evModel").value.trim(), prompt: radio("evPrompt"), cap: Number(radio("evCap")),
-    tools: $("evTools").value, workflow: $("evWorkflow").value,
+    tools: REFERENCE.tools, workflow: REFERENCE.workflow,
     investigate: $("evInvestigate").checked, snapshot: radio("evSnapshot"),
     known_issues: $("evKnown").checked ? $("evKnown").value : "off",
   };
@@ -302,12 +297,9 @@ function readForm() {
 
 function problems(f) {
   const p = PRESETS[f.preset];
-  // The options are disabled in live mode, so these only catch a stale form.
+  // The option is disabled, so this only catches a stale form.
   if (f.mode === "live" && !LIVE_PRESETS.has(f.preset)) {
-    return "Only the reference condition and custom runs can go to the deployed Runtime so far.";
-  }
-  if (f.mode === "live" && !LIVE_WORKFLOWS.has(f.base.workflow)) {
-    return "The synthesis and chained workflows cannot run yet: their harness is not built.";
+    return "This experiment cannot run on the deployed Runtime yet.";
   }
   if (!f.conds.length) return p.axis === "model" ? "List at least one model ID." : "Tick at least one condition.";
   // "Pinned by full model ID": an alias or a family name could resolve to a
@@ -333,12 +325,11 @@ function problems(f) {
 function describeDiff(f) {
   const p = PRESETS[f.preset], b = f.base, out = [];
   if (p.axis !== "model" && b.model !== REFERENCE.model) out.push(`model (${shortModel(b.model) || "blank"})`);
-  // A live run's prompt is always the deployed one; the note below says so once.
-  if (f.mode !== "live" && p.axis !== "prompt" && b.prompt !== REFERENCE.prompt) out.push(`prompt (${b.prompt})`);
+  if (p.axis !== "prompt" && b.prompt !== REFERENCE.prompt) out.push(`prompt (${b.prompt})`);
   if (p.axis !== "cap" && b.cap !== REFERENCE.cap) out.push(`cap (${b.cap})`);
-  if (p.axis !== "tools" && b.tools !== REFERENCE.tools) out.push(`tools (${optText("evTools", b.tools)})`);
+  if (p.axis !== "tools" && b.tools !== REFERENCE.tools) out.push(`tools (${TOOLS_TEXT[b.tools]})`);
   if (p.axis !== "workflow" && b.workflow !== REFERENCE.workflow) {
-    out.push(`workflow (${optText("evWorkflow", b.workflow).toLowerCase()})`);
+    out.push(`workflow (${WORKFLOW_TEXT[b.workflow].toLowerCase()})`);
   }
   if (b.investigate !== REFERENCE.investigate) out.push(b.investigate ? "an investigation phase" : "no investigation");
   if (b.snapshot !== REFERENCE.snapshot) out.push(`${b.snapshot} snapshot set`);
@@ -347,9 +338,8 @@ function describeDiff(f) {
   }
   if (f.tables.length !== TABLES.length) out.push(`${f.tables.length} of ${TABLES.length} tables`);
   const lead = p.axis ? `Varies the ${AXIS_NAMES[p.axis]} over ${plural(f.conds.length, "condition")}. ` : "";
-  const tail = f.mode === "live" ? " The prompt is the deployed one, not K1." : "";
-  if (!out.length) return lead + (p.axis ? "Otherwise matches the reference." : "Matches the reference condition.") + tail;
-  return lead + `${p.axis ? "Otherwise differs" : "Differs"} from the reference in: ${out.join(", ")}.` + tail;
+  if (!out.length) return lead + (p.axis ? "Otherwise matches the reference." : "Matches the reference condition.");
+  return lead + `${p.axis ? "Otherwise differs" : "Differs"} from the reference in: ${out.join(", ")}.`;
 }
 
 // The run's size before it starts: sessions, the most flags they can raise, and
@@ -676,10 +666,10 @@ function chips(ev) {
   add(ev.mode === "live" ? "Live: deployed Runtime" : "Simulated in this browser");
   if (axis) add(`Varies ${AXIS_NAMES[axis]}: ${ev.conds.map((c) => c.label).join(", ")}`, true);
   if (axis !== "model") add(`Model ${shortModel(b.model)}`);
-  if (axis !== "prompt") add(b.prompt === "deployed" ? "Deployed prompt" : `Prompt ${b.prompt}`);
+  if (axis !== "prompt") add(`Prompt ${b.prompt}`);
   if (axis !== "cap") add(`Cap ${b.cap}`);
-  if (axis !== "tools") add(optText("evTools", b.tools));
-  if (axis !== "workflow") add(optText("evWorkflow", b.workflow));
+  if (axis !== "tools") add(TOOLS_TEXT[b.tools]);
+  if (axis !== "workflow") add(WORKFLOW_TEXT[b.workflow]);
   add(b.investigate ? "Investigation of picked flags" : "Detection only");
   add(b.known_issues === "off" ? "No known-issues list" : `Known issues: ${b.known_issues}`);
   add(`Snapshot:${b.snapshot}${ev.mode === "live" ? " (recorded, not reset)" : ""}`);
@@ -1279,8 +1269,10 @@ function pauseNote(round, tally, open) {
 // conversation is purged on the Runtime as soon as it ends, so the download is
 // the record.
 //
-// Not covered: resetting the warehouse, the synthesis and chained workflows, and
-// varying the prompt, cap or tools. Each needs a change on the Runtime side.
+// Each discovery request names its condition's prompt variant and cap, which the
+// Runtime echoes in its done event. Not covered: resetting the warehouse, the
+// synthesis and chained workflows, and varying the model or tools. Each needs a
+// change on the Runtime side.
 function RuntimeHarness(plan, onEvent) {
   const STOP_GRACE_MS = 15000;   // how long a stopped conversation gets to say it has stopped
   // All a Runtime from before 2026-10-20 answers an investigation that brings its
@@ -1371,7 +1363,7 @@ function RuntimeHarness(plan, onEvent) {
   }
 
   const doneStats = (d) => ({ reason: d.reason, message: d.message ?? null, model_turns: d.model_turns,
-    tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max,
+    tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max, prompt_variant: d.prompt_variant,
     thread_messages: d.thread_messages, runtime_session: d.session });
 
   // With a known-issues list, the Runtime appends the session's slice of it -- the
@@ -1379,9 +1371,9 @@ function RuntimeHarness(plan, onEvent) {
   // it showed before any model call.
   async function discover(j, w) {
     let done = null;
-    const list = plan.conds[j.cond].known_issues;
-    const body = list === "off" ? { task: j.task }
-      : { task: j.task, table: j.table, known_issues: { list, version: known.get(list) } };
+    const { known_issues: list, prompt, cap } = plan.conds[j.cond];
+    const body = { task: j.task, prompt_variant: prompt, max_issues: cap };
+    if (list !== "off") Object.assign(body, { table: j.table, known_issues: { list, version: known.get(list) } });
     await call(w, body, (e) => {
       if (e.type === "issue") {
         j.issues.set(e.issue.n, e.issue);
@@ -1395,12 +1387,17 @@ function RuntimeHarness(plan, onEvent) {
       } else if (!common(j, "discovery", e)) return;   // trace, heartbeat, sandbox
       emit(j);
     });
-    // A request the Runtime refuses (a list or version it does not have) gets one
-    // error event before any model turn, and no done: that error is the reason.
+    // A request the Runtime refuses (a list or version, prompt or cap it does not
+    // have) gets one error event before any model turn, and no done: that error is
+    // the reason.
     const refused = !j.turns && j.errors.at(-1)?.message;
     if (!done) throw new Error(refused || "the stream ended without saying why");
     if (list !== "off" && !j.known) throw new Error("the Runtime ran the session without the known-issues list");
     j.discovery = doneStats(done);
+    if (done.prompt_variant !== prompt || done.issue_max !== cap) {
+      throw new Error(`the Runtime ran the session with prompt ${done.prompt_variant ?? "(none)"} and cap ` +
+                      `${done.issue_max}, not ${prompt} and ${cap}`);
+    }
     return { completed: "done", step_limit: "step_limit", cancelled: "cancelled" }[done.reason] || "error";
   }
 
@@ -1606,30 +1603,45 @@ function RuntimeHarness(plan, onEvent) {
     return lists;
   }
 
-  // A run with a known-issues list starts once the Runtime has said which version it
-  // holds. Without one, nothing is asked and the run starts as before.
+  // The prompt variants and cap range the Runtime takes. One from before 2026-10-27
+  // answers with an error, as for knownLists().
+  async function settings() {
+    const w = { conv: "eval-" + crypto.randomUUID(), abort: null };
+    let have = null;
+    await call(w, { action: "settings" }, (e) => { if (e.type === "settings") have = e; });
+    if (!have) {
+      throw new Error("The deployed Runtime cannot vary the prompt or the cap yet. Deploy agentcore-runtime " +
+                      "(2026-10-27 or later).");
+    }
+    for (const c of Object.values(plan.conds)) {
+      if (!have.prompt_variants.includes(c.prompt)) throw new Error(`The deployed Runtime has no prompt ${c.prompt}.`);
+      if (c.cap > have.cap_ceiling) throw new Error(`The deployed Runtime caps a session at ${have.cap_ceiling} issues.`);
+    }
+  }
+
+  // A run starts once the Runtime has said it takes every condition's prompt and
+  // cap and, with a known-issues list, which version of the list it holds.
   async function start() {
     const wanted = new Set(Object.values(plan.conds).map((c) => c.known_issues).filter((k) => k !== "off"));
-    if (wanted.size) {
-      try {
-        const have = await knownLists();
-        for (const name of wanted) {
-          const l = have.find((x) => x.list === name);
-          if (!l) throw new Error(`The deployed Runtime has no known-issues list “${name}”.`);
-          known.set(name, l.version);
-          log(`Each session is shown ${name} v${l.version}, the entries for its table ` +
-              `(${plural(l.entries, "entry", "entries")} in all).`);
-        }
-      } catch (e) {
-        if (stopping) return;
-        log(`Not started: ${e.message}`, true);
-        for (const j of jobs.values()) {
-          j.state = j.result = "cancelled";
-          emit(j);
-        }
-        phase = "finished";
-        return status("stopped");
+    try {
+      await settings();
+      const have = wanted.size ? await knownLists() : [];
+      for (const name of wanted) {
+        const l = have.find((x) => x.list === name);
+        if (!l) throw new Error(`The deployed Runtime has no known-issues list “${name}”.`);
+        known.set(name, l.version);
+        log(`Each session is shown ${name} v${l.version}, the entries for its table ` +
+            `(${plural(l.entries, "entry", "entries")} in all).`);
       }
+    } catch (e) {
+      if (stopping) return;
+      log(`Not started: ${e.message}`, true);
+      for (const j of jobs.values()) {
+        j.state = j.result = "cancelled";
+        emit(j);
+      }
+      phase = "finished";
+      return status("stopped");
     }
     if (stopping) return;
     log(`Starting ${plural(jobs.size, "discovery session")}, up to ${plan.parallel} at a time.`);

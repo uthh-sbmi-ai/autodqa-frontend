@@ -865,31 +865,6 @@
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
               <p class="ev-fixed" hidden></p>
             </div>
-            <div class="ev-field" data-axis="tools">
-              <label for="evTools">Tools</label>
-              <div class="ev-ctl">
-                <select id="evTools">
-                  <option value="all">All tools</option>
-                  <option value="no_valuesets">No get_valuesets</option>
-                  <option value="no_etl">Investigation without ETL tools</option>
-                </select>
-              </div>
-              <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
-              <p class="ev-fixed" hidden></p>
-            </div>
-            <div class="ev-field" data-axis="workflow">
-              <label for="evWorkflow">Workflow</label>
-              <div class="ev-ctl">
-                <select id="evWorkflow" aria-describedby="evWorkflowHelp">
-                  <option value="per_table">Per table, independent</option>
-                  <option value="synthesis">Per table, plus a synthesis pass</option>
-                  <option value="chained">Per table, chained with carryover</option>
-                  <option value="whole">One whole-warehouse session</option>
-                </select>
-                <p class="ev-help" id="evWorkflowHelp">Each table session is focused on its table but may query any table or database.</p>
-              </div>
-              <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
-            </div>
             <div class="ev-field">
               <label class="ev-check"><input type="checkbox" id="evInvestigate"> Pause after discovery to investigate</label>
               <p class="ev-help">When every discovery session has ended, the run pauses and you pick the flags to investigate, each with its own step budget. E1 and E4 call for all of them, so no one's choice shapes attribution.</p>
