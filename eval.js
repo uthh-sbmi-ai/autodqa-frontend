@@ -64,6 +64,13 @@ const TABLES = ["DEMOGRAPHIC", "ENROLLMENT", "ENCOUNTER", "DIAGNOSIS", "PROCEDUR
   "VITAL", "DISPENSING", "LAB_RESULT_CM", "CONDITION", "PRESCRIBING", "DEATH",
   "MED_ADMIN", "PROVIDER", "OBS_CLIN", "IMMUNIZATION", "LDS_ADDRESS_HISTORY", "HARVEST"];
 const STEP_LIMIT = 250;        // per session and per investigation (AUTODQA_STEP_LIMIT)
+// A discovery session that fails for a reason outside the agent -- a stalled or
+// dropped stream, an error the Runtime caught -- starts over in a new conversation,
+// this many times at most, after a short wait. One that ends on its own terms (the
+// step or output limit) keeps its ending, and a request the Runtime refuses would
+// only be refused again.
+const SESSION_RETRIES = 3;
+const RETRY_WAIT_MS = 15000;
 
 // The anchor for every comparison. Each experiment changes one thing from it.
 const REFERENCE = { model: "us.anthropic.claude-sonnet-5-5", effort: "high", prompt: "K1", cap: 10, tools: "all",
@@ -744,7 +751,8 @@ function cellText(s) {
   const t = stateText(s);
   if (s.state === "queued" || (s.state === "cancelled" && !s.flags)) return t;
   const inv = s.invTotal && s.state !== "investigating" ? ` · ${s.invDone}/${s.invTotal} investigated` : "";
-  return `${t} · ${plural(s.flags, "flag")}${inv}`;
+  const again = s.retried?.length ? ` · ${plural(s.retried.length, "retry", "retries")}` : "";
+  return `${t} · ${plural(s.flags, "flag")}${inv}${again}`;
 }
 
 let renderQueued = false;
@@ -880,6 +888,7 @@ function renderDetail() {
   row("State", stateText(s));
   if (s.why) row("Why", s.why);
   (s.warnings || []).forEach((w, i) => row(i ? "" : "Warnings", w));
+  (s.retried || []).forEach((w, i) => row(i ? "" : "Started over after", w));
   row("Flags", fmt(s.flags));
   if (c.settings.investigate) {
     row("Investigated", `${s.invDone} / ${s.invTotal}` + (s.invLimit ? ` (${s.invLimit} at the step limit)` : ""));
@@ -1087,6 +1096,7 @@ function downloadResults(ev) {
     evaluation: ev.id, mode: ev.mode, status: ev.status, started: iso(ev.started), ended: iso(ev.ended),
     saved: iso(Date.now()), runtime: CFG.runtimeArn, preset: ev.preset,
     settings: ev.f.base, tables: ev.f.tables, runs: ev.f.runs, parallel: ev.f.parallel,
+    session_retries: SESSION_RETRIES,
     conditions: ev.conds.map((c) => ({ key: c.key, label: c.label, settings: c.settings })),
     // Who chose what was investigated, for the scorer: a round that took every
     // open flag is the protocol's "every flag investigated".
@@ -1120,14 +1130,15 @@ window.addEventListener("beforeunload", (e) => {
 // failed flag is open to another pick; the others are not.
 const newJob = (u) => ({ ...u, state: "queued", result: null, steps: 0, turns: 0, tools: 0, flags: 0,
                          invDone: 0, invTotal: 0, invLimit: 0, id: null, started: null, ended: null,
-                         why: null, warnings: [], picked: new Set(), inv: new Map() });
+                         why: null, warnings: [], attempts: [], picked: new Set(), inv: new Map() });
 
 // `why` is what ended a discovery that did not finish; `warnings`, what went wrong
-// along the way that the session carried on past.
+// along the way that the session carried on past; `retried`, what ended each attempt
+// the session started over after.
 const sessionEvent = (j) => ({ type: "session", key: j.key, state: j.state, result: j.result,
   steps: j.steps, turns: j.turns, tools: j.tools, flags: j.flags, invDone: j.invDone,
   invTotal: j.invTotal, invLimit: j.invLimit, id: j.id, started: j.started, ended: j.ended,
-  why: j.why, warnings: j.warnings.map((w) => w.message) });
+  why: j.why, warnings: j.warnings.map((w) => w.message), retried: j.attempts.map((a) => a.why) });
 
 // Sessions start interleaved -- by position within their run, then run, then
 // condition -- rather than one condition after another, so any drift in the
@@ -1288,8 +1299,12 @@ function RuntimeHarness(plan, onEvent) {
     "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": conv,   // pins the conversation's microVM
   });
 
+  // An error that says nothing about the session itself, so it can start over.
+  const retryable = (e) => Object.assign(e, { retry: true });
+
   // One streaming invoke on a conversation. Resolves when the stream ends; the
-  // caller checks that a done event arrived.
+  // caller checks that a done event arrived. A network failure, or a 429 or 5xx
+  // from the Runtime's endpoint, comes out marked retryable.
   async function call(w, body, onEv) {
     const token = await freshAccessToken();
     w.abort = new AbortController();
@@ -1298,8 +1313,11 @@ function RuntimeHarness(plan, onEvent) {
       headers: headers(w.conv, token),
       body: JSON.stringify({ ...body, conversation: w.conv }),
       signal: w.abort.signal,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    }).catch((e) => { throw retryable(e); });
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      throw res.status === 429 || res.status >= 500 ? retryable(err) : err;
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
@@ -1311,7 +1329,7 @@ function RuntimeHarness(plan, onEvent) {
       onEv(e);    // outside the try: a bug in a handler should surface, not be skipped
     };
     for (;;) {
-      const { value, done } = await reader.read();
+      const { value, done } = await reader.read().catch((e) => { throw retryable(e); });
       if (done) break;
       buf += decoder.decode(value, { stream: true });
       let nl;
@@ -1370,9 +1388,9 @@ function RuntimeHarness(plan, onEvent) {
     });
     // A request the Runtime refuses (a list or version, model, prompt or cap it does
     // not have) gets one error event before any model turn, and no done: that error
-    // is the reason.
+    // is the reason. A stream that just stops is retryable.
     const refused = !j.turns && j.errors.at(-1)?.message;
-    if (!done) throw new Error(refused || "the stream ended without saying why");
+    if (!done) throw refused ? new Error(refused) : retryable(new Error("the stream ended without saying why"));
     if (list !== "off" && !j.known) throw new Error("the Runtime ran the session without the known-issues list");
     j.discovery = doneStats(done);
     if (done.model !== model || done.effort !== effort || done.prompt_variant !== prompt || done.issue_max !== cap) {
@@ -1380,6 +1398,10 @@ function RuntimeHarness(plan, onEvent) {
                       `${done.effort ?? "(default)"} with prompt ${done.prompt_variant ?? "(none)"} and cap ` +
                       `${done.issue_max}, not ${model} at ${effort}, ${prompt} and ${cap}`);
     }
+    // An error the Runtime caught, such as a model call that failed past its own
+    // retries, is retryable. "truncated" is the agent's own ending (its last reply
+    // ran out of output partway through a call) and stays "error" without a retry.
+    if (done.reason === "error") throw retryable(new Error(done.message || "the Runtime reported an error"));
     return { completed: "done", step_limit: "step_limit", cancelled: "cancelled" }[done.reason] || "error";
   }
 
@@ -1425,33 +1447,63 @@ function RuntimeHarness(plan, onEvent) {
     } catch { /* nothing to do: the Runtime drops it after 15 idle minutes anyway */ }
   }
 
+  // Files a failed attempt under j.attempts and clears what the next one rebuilds,
+  // so the session's flags, transcript and counters are its last attempt's alone.
+  function startOver(j, conv, began, why) {
+    const iso = (t) => new Date(t).toISOString();
+    j.attempts.push({ session: conv, started: iso(began), ended: iso(Date.now()), why,
+                      model_turns: j.turns, tool_calls: j.tools, flags: [...j.issues.values()],
+                      known_issues: j.known, errors: j.errors, warnings: j.warnings, transcript: j.transcript });
+    Object.assign(j, { issues: new Map(), flags: 0, turns: 0, tools: 0, transcript: [], errors: [],
+                       warnings: [], known: null, discovery: null });
+  }
+
+  // One slot for the whole session: its retries keep it rather than queueing again.
   async function runJob(j) {
-    const w = { j, n: null, conv: "eval-" + crypto.randomUUID(), abort: null };
+    const w = { j, n: null, conv: null, abort: null };
     j.state = "discovery";       // before any await, so the pump cannot start it twice
     j.started = Date.now();
-    j.id = w.conv;
     j.task = taskFor(j);
     running.add(w);
-    emit(j);
-    try {
-      j.result = await discover(j, w);
-    } catch (e) {
-      j.result = stopping ? "cancelled" : "error";
-      if (!stopping && j.errors.at(-1)?.message !== e.message) j.errors.push({ phase: "discovery", message: e.message });
-    } finally {
-      running.delete(w);
-      j.state = j.result || "error";
-      j.ended = Date.now();
-      if (j.state === "error" || j.state === "step_limit") j.why = j.errors.at(-1)?.message ?? null;
+    for (;;) {
+      w.conv = j.id = "eval-" + crypto.randomUUID();
+      const began = Date.now();
       emit(j);
+      let retry = false;
+      try {
+        j.result = await discover(j, w);
+      } catch (e) {
+        j.result = stopping ? "cancelled" : "error";
+        retry = !!e.retry;
+        if (!stopping && j.errors.at(-1)?.message !== e.message) j.errors.push({ phase: "discovery", message: e.message });
+      }
+      purge(w.conv);
+      if (!retry || stopping || j.attempts.length >= SESSION_RETRIES) break;
+      const why = j.errors.at(-1)?.message ?? "the attempt failed";
+      log(`${name(j)}: ${why.slice(0, 240)}`, true);
+      log(`${name(j)}: starting over in a new conversation (retry ${j.attempts.length + 1} of ` +
+          `${SESSION_RETRIES}); this attempt's ${plural(j.flags, "flag")} and ` +
+          `${plural(j.turns, "model turn")} are set aside.`, true);
+      startOver(j, w.conv, began, why);
+      emit(j);
+      await new Promise((r) => setTimeout(r, RETRY_WAIT_MS));
+      if (stopping) {
+        j.result = "cancelled";
+        break;
+      }
     }
+    running.delete(w);
+    j.state = j.result || "error";
+    j.ended = Date.now();
+    if (j.state === "error" || j.state === "step_limit") j.why = j.errors.at(-1)?.message ?? null;
+    emit(j);
     if (j.result === "error" && j.errors.length) log(`${name(j)}: ${j.errors.at(-1).message.slice(0, 240)}`, true);
     const what = { done: "done", step_limit: `hit the ${STEP_LIMIT}-step limit, flags so far kept`,
                    error: "failed", cancelled: "cancelled" }[j.state];
     const warned = j.warnings.length ? `, ${plural(j.warnings.length, "warning")}` : "";
-    log(`${name(j)}: ${what} · ${plural(j.flags, "flag")}, ${plural(j.turns, "model turn")}${warned}, ` +
+    const again = j.attempts.length ? `, after ${plural(j.attempts.length, "retry", "retries")}` : "";
+    log(`${name(j)}: ${what} · ${plural(j.flags, "flag")}, ${plural(j.turns, "model turn")}${warned}${again}, ` +
         `${clock(j.ended - j.started)}.`, j.state !== "done");
-    purge(w.conv);
   }
 
   async function runInv(t) {
@@ -1704,6 +1756,9 @@ function RuntimeHarness(plan, onEvent) {
         flags: [...j.issues.values()], picked: [...j.picked].sort((a, b) => a - b),
         known_issues: j.known, discovery: j.discovery, investigations: j.investigations,
         errors: j.errors, warnings: j.warnings, transcript: j.transcript,
+        // Attempts that failed for reasons outside the agent, set aside before the
+        // retry: their flags are a record, not part of the session's.
+        attempts: j.attempts,
       }));
     },
   };
