@@ -855,6 +855,21 @@
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
             </div>
+            <div class="ev-field">
+              <label for="evEffort">Effort</label>
+              <!-- The levels the chosen model takes (agent.py EFFORTS), refilled by
+                   eval.js when the model changes. These are Claude's, for the
+                   default model. -->
+              <div class="ev-ctl">
+                <select id="evEffort">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high" selected>High</option>
+                  <option value="xhigh">Extra high</option>
+                  <option value="max">Max</option>
+                </select>
+              </div>
+            </div>
             <div class="ev-field" data-axis="prompt">
               <span class="lbl" id="evPromptLbl">Prompt</span>
               <div class="ev-ctl">
@@ -933,6 +948,6 @@
 
   <script src="config.js?v=9ec5f07378"></script>
   <script src="app.js?v=52dcc6c6e7"></script>
-  <script src="eval.js?v=9efa14a504"></script>
+  <script src="eval.js?v=8881aafb47"></script>
 </body>
 </html>

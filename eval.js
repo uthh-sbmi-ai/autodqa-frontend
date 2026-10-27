@@ -66,7 +66,7 @@ const TABLES = ["DEMOGRAPHIC", "ENROLLMENT", "ENCOUNTER", "DIAGNOSIS", "PROCEDUR
 const STEP_LIMIT = 250;        // per session and per investigation (AUTODQA_STEP_LIMIT)
 
 // The anchor for every comparison. Each experiment changes one thing from it.
-const REFERENCE = { model: "us.anthropic.claude-sonnet-5-5", prompt: "K1", cap: 10, tools: "all",
+const REFERENCE = { model: "us.anthropic.claude-sonnet-5-5", effort: "high", prompt: "K1", cap: 10, tools: "all",
                     workflow: "per_table", investigate: true, known_issues: "clean-baseline" };
 const REF_RUNS = 3;
 const REF_PARALLEL = 8;
@@ -163,6 +163,25 @@ function shortModel(id) {
 const modelOpt = (id) => [...$("evModel").options].find((o) => o.value === id);
 const modelName = (id) => modelOpt(id)?.textContent || shortModel(id);
 
+// The effort levels a model takes, as agent.py's EFFORTS has them: Claude's five,
+// and the OpenAI models' six with "none" -- except GPT-6.1 Sol, which refuses it.
+// The provider is the ID's second part ("us.openai.gpt-6-luna").
+const EFFORT_NAMES = { none: "None", low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+const EFFORTS = { anthropic: ["low", "medium", "high", "xhigh", "max"],
+                  openai: ["none", "low", "medium", "high", "xhigh", "max"] };
+const EFFORTS_REFUSED = { "us.openai.gpt-6.1-sol": ["none"] };
+const effortsFor = (id) => (EFFORTS[id.split(".")[1]] || [])
+  .filter((e) => !(EFFORTS_REFUSED[id] || []).includes(e));
+
+// Refill the Effort dropdown for the model chosen, keeping the level picked if
+// the model takes it and falling back to the reference's otherwise.
+function syncEffort(want = $("evEffort").value) {
+  const levels = effortsFor($("evModel").value);
+  $("evEffort").replaceChildren(...levels.map((v) => new Option(EFFORT_NAMES[v], v)));
+  $("evEffort").value = levels.includes(want) ? want : REFERENCE.effort;
+}
+$("evModel").addEventListener("change", () => syncEffort());
+
 // ---- Sign-in gate -------------------------------------------------------------
 // The same gate as the chat's task form (setComposerShown in app.js): hidden and
 // inert until sign-in, with a line saying what to do instead.
@@ -230,6 +249,7 @@ function applyPreset(key) {
   const p = PRESETS[key];
   const s = { ...REFERENCE, ...p.set };
   $("evModel").value = s.model;
+  syncEffort(s.effort);
   setRadio("evPrompt", s.prompt);
   setRadio("evCap", s.cap);
   $("evRunCount").value = p.runs || REF_RUNS;
@@ -259,7 +279,7 @@ const modelLines = () => [...new Set($("evModels").value.split("\n").map((l) => 
 
 function readForm() {
   const base = {
-    model: $("evModel").value, prompt: radio("evPrompt"), cap: Number(radio("evCap")),
+    model: $("evModel").value, effort: $("evEffort").value, prompt: radio("evPrompt"), cap: Number(radio("evCap")),
     tools: REFERENCE.tools, workflow: REFERENCE.workflow, investigate: REFERENCE.investigate,
     known_issues: REFERENCE.known_issues,
   };
@@ -294,6 +314,9 @@ function problems(f) {
   // free-text list is where another one could come from.)
   const unknown = f.conds.map((c) => c.settings.model).find((m) => !modelOpt(m));
   if (unknown !== undefined) return `“${unknown || "(blank)"}” is not one of the models the Runtime offers.`;
+  // E1's list can pair the effort chosen with a model that does not take it.
+  const odd = f.conds.find((c) => !effortsFor(c.settings.model).includes(c.settings.effort));
+  if (odd) return `${modelName(odd.settings.model)} does not take ${EFFORT_NAMES[odd.settings.effort]} effort.`;
   if (f.conds.some((c) => c.settings.tools === "no_etl" && !c.settings.investigate)) {
     return "Investigation without ETL tools only changes anything with the investigation phase on.";
   }
@@ -1221,8 +1244,8 @@ function pauseNote(round, tally, open) {
 // conversation is purged on the Runtime as soon as it ends, so the download is
 // the record.
 //
-// Each request names its condition's model, and a discovery request its prompt
-// variant and cap; the Runtime echoes them in its done event. Not covered:
+// Each request names its condition's model and effort, and a discovery request its
+// prompt variant and cap; the Runtime echoes them in its done event. Not covered:
 // resetting the warehouse, the synthesis and chained workflows, and varying the
 // tools. Each needs a change on the Runtime side.
 function RuntimeHarness(plan, onEvent) {
@@ -1321,7 +1344,7 @@ function RuntimeHarness(plan, onEvent) {
 
   const doneStats = (d) => ({ reason: d.reason, message: d.message ?? null, model_turns: d.model_turns,
     tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max, prompt_variant: d.prompt_variant,
-    model: d.model, max_output_tokens: d.max_output_tokens ?? null,
+    model: d.model, effort: d.effort ?? null, max_output_tokens: d.max_output_tokens ?? null,
     thread_messages: d.thread_messages, runtime_session: d.session });
 
   // With a known-issues list, the Runtime appends the session's slice of it -- the
@@ -1329,8 +1352,8 @@ function RuntimeHarness(plan, onEvent) {
   // it showed before any model call.
   async function discover(j, w) {
     let done = null;
-    const { known_issues: list, model, prompt, cap } = plan.conds[j.cond];
-    const body = { task: j.task, model, prompt_variant: prompt, max_issues: cap };
+    const { known_issues: list, model, effort, prompt, cap } = plan.conds[j.cond];
+    const body = { task: j.task, model, effort, prompt_variant: prompt, max_issues: cap };
     if (list !== "off") Object.assign(body, { table: j.table, known_issues: { list, version: known.get(list) } });
     await call(w, body, (e) => {
       if (e.type === "issue") {
@@ -1352,9 +1375,10 @@ function RuntimeHarness(plan, onEvent) {
     if (!done) throw new Error(refused || "the stream ended without saying why");
     if (list !== "off" && !j.known) throw new Error("the Runtime ran the session without the known-issues list");
     j.discovery = doneStats(done);
-    if (done.model !== model || done.prompt_variant !== prompt || done.issue_max !== cap) {
-      throw new Error(`the Runtime ran the session on ${done.model ?? "its default model"} with prompt ` +
-                      `${done.prompt_variant ?? "(none)"} and cap ${done.issue_max}, not ${model}, ${prompt} and ${cap}`);
+    if (done.model !== model || done.effort !== effort || done.prompt_variant !== prompt || done.issue_max !== cap) {
+      throw new Error(`the Runtime ran the session on ${done.model ?? "its default model"} at effort ` +
+                      `${done.effort ?? "(default)"} with prompt ${done.prompt_variant ?? "(none)"} and cap ` +
+                      `${done.issue_max}, not ${model} at ${effort}, ${prompt} and ${cap}`);
     }
     return { completed: "done", step_limit: "step_limit", cancelled: "cancelled" }[done.reason] || "error";
   }
@@ -1364,9 +1388,9 @@ function RuntimeHarness(plan, onEvent) {
   async function investigate(j, w) {
     const n = w.n, phase = `investigation #${n}`;
     const { title, dimension, finding, evidence, table, column } = j.issues.get(n);
-    const { model } = plan.conds[j.cond];
+    const { model, effort } = plan.conds[j.cond];
     let done = null, refused = false;
-    await call(w, { action: "investigate", selected: [n], model,
+    await call(w, { action: "investigate", selected: [n], model, effort,
                     issues: [{ n, title, dimension, finding, evidence, table, column }] }, (e) => {
       if (e.type === "issue_update") j.issues.set(e.issue.n, e.issue);
       else if (e.type === "report") e.issues.forEach((i) => j.issues.set(i.n, i));
@@ -1385,7 +1409,10 @@ function RuntimeHarness(plan, onEvent) {
     }
     if (!done) throw new Error("the stream ended without saying why");
     j.investigations.push({ issue: n, conversation: w.conv, ...doneStats(done) });
-    if (done.model !== model) throw new Error(`the Runtime investigated on ${done.model ?? "its default model"}, not ${model}`);
+    if (done.model !== model || done.effort !== effort) {
+      throw new Error(`the Runtime investigated on ${done.model ?? "its default model"} at effort ` +
+                      `${done.effort ?? "(default)"}, not ${model} at ${effort}`);
+    }
     return done;
   }
 
@@ -1565,18 +1592,22 @@ function RuntimeHarness(plan, onEvent) {
     return lists;
   }
 
-  // The models, prompt variants and cap range the Runtime takes. One from before
-  // 2026-10-27 answers with an error, as for knownLists(); v29 has no model list.
+  // The models and their effort levels, prompt variants and cap range the Runtime
+  // takes. One from before 2026-10-27 answers with an error, as for knownLists();
+  // v29 has no model list, and v30 no effort levels.
   async function settings() {
     const w = { conv: "eval-" + crypto.randomUUID(), abort: null };
     let have = null;
     await call(w, { action: "settings" }, (e) => { if (e.type === "settings") have = e; });
-    if (!have?.models) {
-      throw new Error("The deployed Runtime cannot take a model, prompt or cap from the console yet. " +
+    if (!have?.models || !have.efforts) {
+      throw new Error("The deployed Runtime cannot take a model, effort, prompt or cap from the console yet. " +
                       "Deploy agentcore-runtime.");
     }
     for (const c of Object.values(plan.conds)) {
       if (!have.models.includes(c.model)) throw new Error(`The deployed Runtime does not offer ${modelName(c.model)}.`);
+      if (!have.efforts[c.model]?.includes(c.effort)) {
+        throw new Error(`The deployed Runtime does not offer ${EFFORT_NAMES[c.effort]} effort for ${modelName(c.model)}.`);
+      }
       if (!have.prompt_variants.includes(c.prompt)) throw new Error(`The deployed Runtime has no prompt ${c.prompt}.`);
       if (c.cap > have.cap_ceiling) throw new Error(`The deployed Runtime caps a session at ${have.cap_ceiling} issues.`);
     }
