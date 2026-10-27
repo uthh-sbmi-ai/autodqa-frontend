@@ -418,8 +418,6 @@
   .ev-tablegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 12px; }
   .ev-tablegrid span { font-family: var(--font-mono); font-size: 0.6875rem; word-break: break-all; }
   #evTablesAll { margin: 4px 0; background: var(--card); border-color: var(--border); color: var(--text); }
-  .ev-summary { margin: 12px 0 0; font-size: 0.75rem; color: var(--muted); }
-  .ev-summary strong { color: var(--text); font-weight: 500; }
   .ev-err { color: var(--err); font-size: 0.75rem; margin: 8px 0 0; }
   .ev-err:empty { display: none; }
   #evLaunch { width: 100%; margin-top: 12px; }
@@ -874,20 +872,6 @@
               </div>
               <p class="ev-varied" hidden>Varied by this experiment: see Conditions.</p>
             </div>
-            <div class="ev-field">
-              <span class="lbl" id="evSnapLbl">Snapshot set loaded now</span>
-              <div class="ev-choice" role="radiogroup" aria-labelledby="evSnapLbl" aria-describedby="evSnapHelp">
-                <label><input type="radio" name="evSnapshot" value="injected"> Injected</label>
-                <label><input type="radio" name="evSnapshot" value="clean"> Clean</label>
-              </div>
-              <p class="ev-help" id="evSnapHelp">Which set the warehouse holds. Recorded, not applied: reset it with cdw-synthetic before launching.</p>
-            </div>
-            <div class="ev-field">
-              <label for="evTag">System tag</label>
-              <input id="evTag" type="text" spellcheck="false" autocomplete="off" aria-describedby="evTagHelp">
-              <p class="ev-help" id="evTagHelp">Recorded with every run. Test and holdout scores need a frozen tag such as eval-v1.</p>
-            </div>
-            <p class="ev-help">Fixed for every run: 250 graph steps per session and per investigation. None of these models takes a temperature, so each samples at its own default.</p>
           </fieldset>
 
           <fieldset>
@@ -908,12 +892,6 @@
             </div>
           </fieldset>
 
-          <p class="ev-summary" id="evDiff"></p>
-          <p class="ev-summary" id="evScale"></p>
-          <div class="notice">
-            <h3>Live run</h3>
-            <p>The console does not reset the warehouse yet: sessions query CDW as it stands, and the snapshot set you name is recorded with the results, not applied. Results stay in this tab until you download them.</p>
-          </div>
           <p class="ev-err" id="evErr" role="alert"></p>
           <button id="evLaunch" type="submit">Launch live evaluation</button>
         </form>
@@ -927,7 +905,7 @@
         <div class="welcome" id="evIntro">
           <h3>How an evaluation runs</h3>
           <ol>
-            <li><strong>Reset.</strong> The warehouse is reset to the chosen snapshot set, so every run starts from the same data. The console does not do this yet: reset it with cdw-synthetic before a live run.</li>
+            <li><strong>Reset.</strong> The warehouse is reset to a snapshot set, so every run starts from the same data. The console does not do this yet: reset it with cdw-synthetic before a live run.</li>
             <li><strong>Discover.</strong> Each table gets its own discovery session: a new conversation and sandbox with no memory of the others. Sessions run in parallel, up to the limit you set.</li>
             <li><strong>Synthesize (optional).</strong> One more session per run gets the merged flags and a budget for cross-table checks.</li>
             <li><strong>Pick, then investigate (optional).</strong> When discovery is over, the run pauses for you to pick which flags to investigate. E1 and E4 take all of them. Each picked flag gets its own conversation and step budget. After each round you can pick more, or finish.</li>
@@ -954,6 +932,6 @@
 
   <script src="config.js?v=9ec5f07378"></script>
   <script src="app.js?v=64f90d67cc"></script>
-  <script src="eval.js?v=8ee192799f"></script>
+  <script src="eval.js?v=032dd55036"></script>
 </body>
 </html>

@@ -67,7 +67,7 @@ const STEP_LIMIT = 250;        // per session and per investigation (AUTODQA_STE
 
 // The anchor for every comparison. Each experiment changes one thing from it.
 const REFERENCE = { model: "us.anthropic.claude-sonnet-5-5", prompt: "K1", cap: 10, tools: "all",
-                    workflow: "per_table", investigate: true, snapshot: "injected", known_issues: "clean-baseline" };
+                    workflow: "per_table", investigate: true, known_issues: "clean-baseline" };
 const REF_RUNS = 3;
 const REF_PARALLEL = 8;
 
@@ -236,7 +236,6 @@ function applyPreset(key) {
   $("evModel").value = s.model;
   setRadio("evPrompt", s.prompt);
   setRadio("evCap", s.cap);
-  setRadio("evSnapshot", s.snapshot);
   $("evRunCount").value = p.runs || REF_RUNS;
   $("evPresetHelp").textContent = p.help || "";
   $("evPresetHelp").hidden = !p.help;
@@ -266,7 +265,7 @@ function readForm() {
   const base = {
     model: $("evModel").value, prompt: radio("evPrompt"), cap: Number(radio("evCap")),
     tools: REFERENCE.tools, workflow: REFERENCE.workflow, investigate: REFERENCE.investigate,
-    known_issues: REFERENCE.known_issues, snapshot: radio("evSnapshot"),
+    known_issues: REFERENCE.known_issues,
   };
   const p = PRESETS[preset];
   let conds;
@@ -285,7 +284,6 @@ function readForm() {
     tables: tableBoxes.filter((c) => c.checked).map((c) => c.value),
     runs: Number($("evRunCount").value),
     parallel: Number($("evParallel").value),
-    tag: $("evTag").value.trim() || "untagged",
   };
 }
 
@@ -311,28 +309,6 @@ function problems(f) {
   return "";
 }
 
-// Where the configuration departs from the reference, in words. An experiment is
-// meant to change one thing, so anything beyond its own axis is called out.
-function describeDiff(f) {
-  const p = PRESETS[f.preset], b = f.base, out = [];
-  if (p.axis !== "model" && b.model !== REFERENCE.model) out.push(`model (${modelName(b.model)})`);
-  if (p.axis !== "prompt" && b.prompt !== REFERENCE.prompt) out.push(`prompt (${b.prompt})`);
-  if (p.axis !== "cap" && b.cap !== REFERENCE.cap) out.push(`cap (${b.cap})`);
-  if (p.axis !== "tools" && b.tools !== REFERENCE.tools) out.push(`tools (${TOOLS_TEXT[b.tools]})`);
-  if (p.axis !== "workflow" && b.workflow !== REFERENCE.workflow) {
-    out.push(`workflow (${WORKFLOW_TEXT[b.workflow].toLowerCase()})`);
-  }
-  if (b.investigate !== REFERENCE.investigate) out.push(b.investigate ? "an investigation phase" : "no investigation");
-  if (b.snapshot !== REFERENCE.snapshot) out.push(`${b.snapshot} snapshot set`);
-  if (b.known_issues !== REFERENCE.known_issues) {
-    out.push(b.known_issues === "off" ? "no known-issues list" : `the ${b.known_issues} known-issues list`);
-  }
-  if (f.tables.length !== TABLES.length) out.push(`${f.tables.length} of ${TABLES.length} tables`);
-  const lead = p.axis ? `Varies the ${AXIS_NAMES[p.axis]} over ${plural(f.conds.length, "condition")}. ` : "";
-  if (!out.length) return lead + (p.axis ? "Otherwise matches the reference." : "Matches the reference condition.");
-  return lead + `${p.axis ? "Otherwise differs" : "Differs"} from the reference in: ${out.join(", ")}.`;
-}
-
 // The run's size before it starts: sessions, the most flags they can raise, and
 // the most investigations a pick of all of them could start -- investigation is
 // what drives cost.
@@ -349,25 +325,6 @@ function scale(f) {
   return { sessions, flags, invest };
 }
 
-function renderScale(f) {
-  const { sessions, flags, invest } = scale(f);
-  const strong = (t) => el("strong", null, t);
-  const box = $("evScale");
-  box.replaceChildren(
-    strong(plural(sessions, "discovery session")),
-    ` (${plural(f.conds.length, "condition")} × ${plural(f.runs, "run")}), raising up to `,
-    strong(plural(flags, "flag")),
-    invest ? ". The run then pauses for you to pick the flags to investigate: at most "
-           : ". Detection only: nothing is investigated.");
-  if (invest) box.append(strong(plural(invest, "investigation")), ` of up to ${STEP_LIMIT} steps each.`);
-  const cost = f.mode === "live" && estimate(f);
-  if (cost) {
-    box.append(" Rough cost at ev-1's measured rates: about ", strong(usd(cost.discovery)), " for discovery");
-    if (cost.inv) box.append(", and up to ", strong(usd(cost.inv)), " more if every session fills its cap and you pick every flag");
-    box.append(".");
-  }
-}
-
 // From COST, so only when every condition is that model, per table.
 function estimate(f) {
   if (!f.conds.every((c) => c.settings.model === COST.model && c.settings.workflow === "per_table")) return null;
@@ -379,11 +336,8 @@ function refresh() {
   const n = tableBoxes.filter((c) => c.checked).length;
   $("evTablesCount").textContent = `${n} of ${TABLES.length}`;
   $("evTablesAll").textContent = n === TABLES.length ? "Clear all" : "Select all";
-  const f = readForm();
-  $("evDiff").textContent = describeDiff(f);
-  renderScale(f);
   // Re-check a standing error as the user fixes it; do not raise new ones mid-edit.
-  if ($("evErr").textContent) $("evErr").textContent = problems(f);
+  if ($("evErr").textContent) $("evErr").textContent = problems(readForm());
 }
 
 $("evPreset").addEventListener("change", () => applyPreset($("evPreset").value));
@@ -425,7 +379,6 @@ function confirmRound(ev, k) {
 }
 
 $("evModels").value = REFERENCE.model;
-$("evTag").value = "untagged";
 $("evParallel").value = REF_PARALLEL;
 applyPreset("ref");
 setEvalFormShown(false);
@@ -495,7 +448,7 @@ function launch(f) {
 
   const conds = Object.fromEntries(ev.conds.map((c) => [c.key, { label: c.label, ...c.settings }]));
   const harness = f.mode === "live" ? RuntimeHarness : MockHarness;
-  ev.handle = harness({ units: ev.units, parallel: f.parallel, conds, snapshot: f.base.snapshot, tables: f.tables },
+  ev.handle = harness({ units: ev.units, parallel: f.parallel, conds, tables: f.tables },
                       (e) => onHarnessEvent(ev, e));
   $("evIntro").hidden = true;
   show(ev);
@@ -663,11 +616,9 @@ function chips(ev) {
   if (axis !== "workflow") add(WORKFLOW_TEXT[b.workflow]);
   add(b.investigate ? "Investigation of picked flags" : "Detection only");
   add(b.known_issues === "off" ? "No known-issues list" : `Known issues: ${b.known_issues}`);
-  add(`Snapshot:${b.snapshot}${ev.mode === "live" ? " (recorded, not reset)" : ""}`);
   add(`${ev.f.tables.length} of ${TABLES.length} tables`);
   add(`${plural(ev.f.runs, "run")} per condition`);
   add(`${ev.f.parallel} in parallel`);
-  add(`Tag: ${ev.f.tag}`);
   return ul;
 }
 
@@ -766,8 +717,7 @@ function scoringBox(ev) {
   for (const [k, v] of rows) dl.append(el("dt", null, k), el("dd", null, v));
   box.append(dl, el("p", "foot",
     "The scorer is not built yet. Until the freeze it reports the dev split (15 defects) only, " +
-    "and transcripts show any flag that matches a test defect as “[held-out match]”." +
-    (ev.f.base.snapshot === "clean" ? " On the clean set every flag is pre-existing or a false positive." : "")));
+    "and transcripts show any flag that matches a test defect as “[held-out match]”."));
   return box;
 }
 
@@ -1104,7 +1054,7 @@ function downloadResults(ev) {
   const iso = (t) => (t ? new Date(t).toISOString() : null);
   const data = {
     evaluation: ev.id, mode: ev.mode, status: ev.status, started: iso(ev.started), ended: iso(ev.ended),
-    saved: iso(Date.now()), runtime: CFG.runtimeArn, preset: ev.preset, tag: ev.f.tag,
+    saved: iso(Date.now()), runtime: CFG.runtimeArn, preset: ev.preset,
     settings: ev.f.base, tables: ev.f.tables, runs: ev.f.runs, parallel: ev.f.parallel,
     conditions: ev.conds.map((c) => ({ key: c.key, label: c.label, settings: c.settings })),
     // Who chose what was investigated, for the scorer: a round that took every
@@ -1644,8 +1594,7 @@ function RuntimeHarness(plan, onEvent) {
   }
 
   status("running");
-  log(`Live run on the deployed Runtime. The warehouse is not reset: sessions query CDW as it stands ` +
-      `(recorded as the ${plan.snapshot} set).`);
+  log("Live run on the deployed Runtime. The warehouse is not reset: sessions query CDW as it stands.");
   start();
 
   return {
