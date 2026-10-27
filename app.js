@@ -586,6 +586,12 @@ function renderEvent(ev) {
       `\u21ba recovered ${c} tool call(s) left unfinished by the previous run \u2014 ` +
       `they returned no result, so the agent may repeat them.`);
   }
+  if (ev.type === "warning") {
+    // Something went wrong that the run carried on past: a reply cut off at the
+    // output limit, a call refused before it ran. Not an error -- the agent was told.
+    announce("Warning. " + ev.message);
+    return addLine("stopped", "⚠ " + ev.message);
+  }
   if (ev.type === "report") {
     const list = ev.issues || [];
     if (!list.length) return;
@@ -628,7 +634,8 @@ function renderEvent(ev) {
     updateIssueCount();
     const listed = ev.issue_count ? ` \u00b7 ${ev.issue_count} issue(s) listed` : "";
     const did = ev.phase === "investigation" ? `investigated ${ev.investigated} issue(s) \u00b7 ` : "";
-    const n = `${did}${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}${listed}`;
+    const warned = ev.warnings?.length ? ` · ${ev.warnings.length} warning(s) above` : "";
+    const n = `${did}${ev.model_turns} model turn(s), ${ev.tool_calls} tool call(s)${carried}${listed}${warned}`;
     if (ev.reason === "completed") {
       announce(`Run finished. ${n}.`);
       addLine("done", `\u2713 finished \u00b7 ${n}`);

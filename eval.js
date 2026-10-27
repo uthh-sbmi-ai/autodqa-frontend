@@ -80,11 +80,7 @@ const AXIS_NAMES = { model: "model", prompt: "prompt", cap: "issue cap", tools: 
 const LIVE_PRESETS = new Set(["ref", "E3", "E5", "custom"]);
 // Tools, workflow, investigation and the known-issues list are not on the form:
 // every live session has all tools, works on one table and is shown the list, and
-// every run pauses after discovery for a pick. E2 and E4 still vary tools and
-// workflow, so their names are kept here.
-const TOOLS_TEXT = { all: "All tools", no_valuesets: "No get_valuesets", no_etl: "Investigation without ETL tools" };
-const WORKFLOW_TEXT = { per_table: "Per table, independent", synthesis: "Per table, plus a synthesis pass",
-                        chained: "Per table, chained with carryover", whole: "One whole-warehouse session" };
+// every run pauses after discovery for a pick.
 
 // Mean cost of a Sonnet 4.5 discovery session, and of investigating one flag, as
 // measured on ev-1 (2026-10-19, Runtime v22, prompt caching on) from the
@@ -512,7 +508,7 @@ function show(ev) {
   view.stop.type = "button";
   view.stop.addEventListener("click", () => ev.handle.stop());
   head.append(view.title, view.status, view.elapsed, view.stop);
-  root.append(head, chips(ev));
+  root.append(head);
 
   // A live run's findings exist nowhere else once its sessions are purged -- the
   // Runtime keeps a conversation only in its microVM's memory -- so they can be
@@ -559,16 +555,12 @@ function show(ev) {
   const dl = el("dl", "ev-totals");
   view.tot = {};
   for (const [k, label] of [["sessions", "Sessions complete"], ["flags", "Flags raised"], ["inv", "Investigations"],
-                            ["turns", "Model turns"], ["tools", "Tool calls"], ["limit", "Step-limit hits"],
-                            ["failed", "Failed"], ["tokens", "Tokens"]]) {
+                            ["turns", "Model turns"]]) {
     const d = el("div");
     view.tot[k] = el("dd");
     d.append(el("dt", null, label), view.tot[k]);
     dl.appendChild(d);
   }
-  // Cost needs per-call token counts, which the Runtime's done event does not carry yet.
-  view.tot.tokens.className = "small";
-  view.tot.tokens.textContent = "not reported yet";
   root.appendChild(dl);
 
   if (ev.conds.length > 1) root.appendChild(condTable(ev));
@@ -600,26 +592,6 @@ function show(ev) {
 
   syncList();
   render();
-}
-
-function chips(ev) {
-  const ul = el("ul", "ev-chips");
-  ul.setAttribute("aria-label", "Settings for this evaluation");
-  const b = ev.f.base, axis = PRESETS[ev.preset].axis;
-  const add = (text, vary) => ul.appendChild(el("li", vary ? "vary" : null, text));
-  add(ev.mode === "live" ? "Live: deployed Runtime" : "Simulated in this browser");
-  if (axis) add(`Varies ${AXIS_NAMES[axis]}: ${ev.conds.map((c) => c.label).join(", ")}`, true);
-  if (axis !== "model") add(modelName(b.model));
-  if (axis !== "prompt") add(`Prompt ${b.prompt}`);
-  if (axis !== "cap") add(`Cap ${b.cap}`);
-  if (axis !== "tools") add(TOOLS_TEXT[b.tools]);
-  if (axis !== "workflow") add(WORKFLOW_TEXT[b.workflow]);
-  add(b.investigate ? "Investigation of picked flags" : "Detection only");
-  add(b.known_issues === "off" ? "No known-issues list" : `Known issues: ${b.known_issues}`);
-  add(`${ev.f.tables.length} of ${TABLES.length} tables`);
-  add(`${plural(ev.f.runs, "run")} per condition`);
-  add(`${ev.f.parallel} in parallel`);
-  return ul;
 }
 
 // With several conditions, one summary row each; its button picks which one the
@@ -793,9 +765,6 @@ function render() {
     view.tot.inv.textContent = "none (detection only)";
   }
   view.tot.turns.textContent = fmt(sum(all, "turns"));
-  view.tot.tools.textContent = fmt(sum(all, "tools"));
-  view.tot.limit.textContent = fmt(all.filter((s) => s.result === "step_limit").length + sum(all, "invLimit"));
-  view.tot.failed.textContent = fmt(all.filter((s) => s.result === "error").length);
 
   if (view.condRows) {
     for (const [key, { b, tds }] of view.condRows) {
@@ -849,6 +818,8 @@ function renderDetail() {
   row("Session", `${ROW_NAMES[s.table] || s.table} · run ${s.run}`);
   if (view.ev.conds.length > 1) row("Condition", c.label);
   row("State", stateText(s));
+  if (s.why) row("Why", s.why);
+  (s.warnings || []).forEach((w, i) => row(i ? "" : "Warnings", w));
   row("Flags", fmt(s.flags));
   if (c.settings.investigate) {
     row("Investigated", `${s.invDone} / ${s.invTotal}` + (s.invLimit ? ` (${s.invLimit} at the step limit)` : ""));
@@ -1089,11 +1060,14 @@ window.addEventListener("beforeunload", (e) => {
 // failed flag is open to another pick; the others are not.
 const newJob = (u) => ({ ...u, state: "queued", result: null, steps: 0, turns: 0, tools: 0, flags: 0,
                          invDone: 0, invTotal: 0, invLimit: 0, id: null, started: null, ended: null,
-                         picked: new Set(), inv: new Map() });
+                         why: null, warnings: [], picked: new Set(), inv: new Map() });
 
+// `why` is what ended a discovery that did not finish; `warnings`, what went wrong
+// along the way that the session carried on past.
 const sessionEvent = (j) => ({ type: "session", key: j.key, state: j.state, result: j.result,
   steps: j.steps, turns: j.turns, tools: j.tools, flags: j.flags, invDone: j.invDone,
-  invTotal: j.invTotal, invLimit: j.invLimit, id: j.id, started: j.started, ended: j.ended });
+  invTotal: j.invTotal, invLimit: j.invLimit, id: j.id, started: j.started, ended: j.ended,
+  why: j.why, warnings: j.warnings.map((w) => w.message) });
 
 // Sessions start interleaved -- by position within their run, then run, then
 // condition -- rather than one condition after another, so any drift in the
@@ -1296,16 +1270,21 @@ function RuntimeHarness(plan, onEvent) {
       j.transcript.push({ phase, kind: "ai", content: e.content });
     } else if (e.type === "ToolMessage") {
       j.tools++;
-      j.transcript.push({ phase, kind: "tool", content: e.content });
+      // status "error": a call refused before it ran, and the error the model was given.
+      j.transcript.push({ phase, kind: "tool", content: e.content, ...(e.status && { status: e.status }) });
     } else if (e.type === "error") {
       j.errors.push({ phase, message: e.message });
+    } else if (e.type === "warning") {
+      // The Runtime starts an investigation's warnings with "Issue #n: " already.
+      j.warnings.push({ phase, message: e.message });
+      log(`${name(j)}: ⚠ ${e.message}`);
     } else return false;
     return true;
   }
 
   const doneStats = (d) => ({ reason: d.reason, message: d.message ?? null, model_turns: d.model_turns,
     tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max, prompt_variant: d.prompt_variant,
-    model: d.model,
+    model: d.model, max_output_tokens: d.max_output_tokens ?? null,
     thread_messages: d.thread_messages, runtime_session: d.session });
 
   // With a known-issues list, the Runtime appends the session's slice of it -- the
@@ -1399,12 +1378,14 @@ function RuntimeHarness(plan, onEvent) {
       running.delete(w);
       j.state = j.result || "error";
       j.ended = Date.now();
+      if (j.state === "error" || j.state === "step_limit") j.why = j.errors.at(-1)?.message ?? null;
       emit(j);
     }
     if (j.result === "error" && j.errors.length) log(`${name(j)}: ${j.errors.at(-1).message.slice(0, 240)}`, true);
     const what = { done: "done", step_limit: `hit the ${STEP_LIMIT}-step limit, flags so far kept`,
                    error: "failed", cancelled: "cancelled" }[j.state];
-    log(`${name(j)}: ${what} · ${plural(j.flags, "flag")}, ${plural(j.turns, "model turn")}, ` +
+    const warned = j.warnings.length ? `, ${plural(j.warnings.length, "warning")}` : "";
+    log(`${name(j)}: ${what} · ${plural(j.flags, "flag")}, ${plural(j.turns, "model turn")}${warned}, ` +
         `${clock(j.ended - j.started)}.`, j.state !== "done");
     purge(w.conv);
   }
@@ -1652,7 +1633,7 @@ function RuntimeHarness(plan, onEvent) {
         state: j.state, started: iso(j.started), ended: iso(j.ended),
         flags: [...j.issues.values()], picked: [...j.picked].sort((a, b) => a - b),
         known_issues: j.known, discovery: j.discovery, investigations: j.investigations,
-        errors: j.errors, transcript: j.transcript,
+        errors: j.errors, warnings: j.warnings, transcript: j.transcript,
       }));
     },
   };

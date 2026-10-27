@@ -408,7 +408,7 @@
   .ev-varied { margin: 0; font-size: 0.75rem; color: var(--accent); }
   /* A live run's download, under its chips. Secondary, like New chat: it saves
      what the run found, it does not start anything. */
-  .ev-resultsbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -4px 0 14px; }
+  .ev-resultsbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 14px; }
   .ev-resultsbar p { margin: 0; flex: 1 1 240px; font-size: 0.75rem; color: var(--muted); }
   .ev-dl { background: var(--card); border-color: var(--border); color: var(--text); }
   details.ev-tables { margin: 6px 0 0; }
@@ -457,10 +457,6 @@
   .ev-pickgroup legend { padding: 0; font-family: var(--font-mono); font-size: 0.75rem; }
   .ev-pick .ev-check input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--btn-border); }
   .ev-pick .ev-help { margin-top: 8px; }
-  .ev-chips { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-  .ev-chips li { border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px;
-                 font-size: 0.6875rem; color: var(--muted); }
-  .ev-chips li.vary { border-color: var(--accent); color: var(--text); }
   .ev-progress { display: grid; grid-template-columns: 7.5rem 1fr minmax(9rem, auto); gap: 6px 10px;
                  align-items: center; font-size: 0.75rem; color: var(--muted); margin: 0 0 14px; }
   .ev-progress progress { width: 100%; height: 10px; accent-color: var(--accent); }
@@ -887,8 +883,7 @@
             </div>
             <div class="ev-field">
               <label for="evParallel">Sessions in parallel</label>
-              <input id="evParallel" type="number" min="1" max="32" step="1" aria-describedby="evParallelHelp">
-              <p class="ev-help" id="evParallelHelp">Each live session holds a sandbox microVM and a SQL Server connection. Bedrock throughput is usually the ceiling.</p>
+              <input id="evParallel" type="number" min="1" max="32" step="1">
             </div>
           </fieldset>
 
@@ -899,7 +894,6 @@
 
       <section class="ev-monitor" aria-labelledby="evMonHead">
         <h2 id="evMonHead">Evaluations</h2>
-        <p class="cap">Launched from this browser tab and held in memory only: reloading or closing the tab ends the monitor.</p>
         <!-- The <ul class="ev-runs"> is created by eval.js with the first launch,
              for the same reason as the issues <ol>: an empty list fails 1.3.1. -->
         <div class="welcome" id="evIntro">
@@ -931,7 +925,7 @@
   </footer>
 
   <script src="config.js?v=9ec5f07378"></script>
-  <script src="app.js?v=64f90d67cc"></script>
-  <script src="eval.js?v=032dd55036"></script>
+  <script src="app.js?v=52dcc6c6e7"></script>
+  <script src="eval.js?v=755fda9074"></script>
 </body>
 </html>
