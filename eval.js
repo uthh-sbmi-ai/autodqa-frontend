@@ -67,7 +67,7 @@ const STEP_LIMIT = 250;        // per session and per investigation (AUTODQA_STE
 
 // The anchor for every comparison. Each experiment changes one thing from it.
 const REFERENCE = { model: "us.anthropic.claude-sonnet-5-5", prompt: "K1", cap: 10, tools: "all",
-                    workflow: "per_table", investigate: false, snapshot: "injected", known_issues: "off" };
+                    workflow: "per_table", investigate: true, snapshot: "injected", known_issues: "clean-baseline" };
 const REF_RUNS = 3;
 const REF_PARALLEL = 8;
 
@@ -78,8 +78,10 @@ const AXIS_NAMES = { model: "model", prompt: "prompt", cap: "issue cap", tools: 
 // holds fixed, or (E2's synthesis and chained workflows) need a harness that is
 // not built.
 const LIVE_PRESETS = new Set(["ref", "E3", "E5", "custom"]);
-// Tools and workflow are not on the form: every live session has all tools and
-// works on one table. E2 and E4 still vary them, so their names are kept here.
+// Tools, workflow, investigation and the known-issues list are not on the form:
+// every live session has all tools, works on one table and is shown the list, and
+// every run pauses after discovery for a pick. E2 and E4 still vary tools and
+// workflow, so their names are kept here.
 const TOOLS_TEXT = { all: "All tools", no_valuesets: "No get_valuesets", no_etl: "Investigation without ETL tools" };
 const WORKFLOW_TEXT = { per_table: "Per table, independent", synthesis: "Per table, plus a synthesis pass",
                         chained: "Per table, chained with carryover", whole: "One whole-warehouse session" };
@@ -234,8 +236,6 @@ function applyPreset(key) {
   $("evModel").value = s.model;
   setRadio("evPrompt", s.prompt);
   setRadio("evCap", s.cap);
-  $("evInvestigate").checked = s.investigate;
-  $("evKnown").checked = s.known_issues !== "off";
   setRadio("evSnapshot", s.snapshot);
   $("evRunCount").value = p.runs || REF_RUNS;
   $("evPresetHelp").textContent = p.help || "";
@@ -265,9 +265,8 @@ const modelLines = () => [...new Set($("evModels").value.split("\n").map((l) => 
 function readForm() {
   const base = {
     model: $("evModel").value, prompt: radio("evPrompt"), cap: Number(radio("evCap")),
-    tools: REFERENCE.tools, workflow: REFERENCE.workflow,
-    investigate: $("evInvestigate").checked, snapshot: radio("evSnapshot"),
-    known_issues: $("evKnown").checked ? $("evKnown").value : "off",
+    tools: REFERENCE.tools, workflow: REFERENCE.workflow, investigate: REFERENCE.investigate,
+    known_issues: REFERENCE.known_issues, snapshot: radio("evSnapshot"),
   };
   const p = PRESETS[preset];
   let conds;
