@@ -495,7 +495,8 @@ function show(ev) {
   const root = $("evMonitor");
   root.hidden = false;
   root.replaceChildren();
-  view = { ev, cond: ev.conds[0].key, cells: new Map(), rowTotals: new Map(), selected: null, logCount: 0 };
+  view = { ev, cond: ev.conds[0].key, cells: new Map(), rowTotals: new Map(), selected: null, open: new Set(),
+           logCount: 0 };
 
   const head = el("div", "ev-runhead");
   view.head = head;
@@ -632,14 +633,16 @@ function condTable(ev) {
 }
 
 // Rows are tables (or the one whole-warehouse session, plus a run's synthesis
-// pass), columns are runs. Rebuilt only when the condition on show changes.
+// pass), columns are runs. Rebuilt only when the condition on show changes. A
+// cell opens to the list of its session's flags, and closes again on a second
+// pick; several can be open at once.
 function buildGrid() {
   const ev = view.ev, c = ev.conds.find((x) => x.key === view.cond);
   view.cells.clear();
   view.rowTotals.clear();
   const t = el("table", "ev-matrix");
   t.appendChild(el("caption", null, `Sessions${ev.conds.length > 1 ? " · " + c.label : ""}. ` +
-                                    "Rows are tables, columns are runs; pick a cell for its counters."));
+                                    "Rows are tables, columns are runs; pick a cell for its flags and counters."));
   const hr = el("tr");
   const heads = ["Table", ...Array.from({ length: ev.f.runs }, (_, i) => `Run ${i + 1}`), "Flags"];
   heads.forEach((h, i) => {
@@ -660,13 +663,22 @@ function buildGrid() {
       const td = el("td");
       const b = el("button", "ev-cell");
       b.type = "button";
-      const sym = el("span", "sym");
+      const sym = el("span", "sym"), text = el("span"), chev = el("span", "chev");
       sym.setAttribute("aria-hidden", "true");
-      b.append(sym, el("span"));
-      b.addEventListener("click", () => { view.selected = key; render(); });
-      td.appendChild(b);
+      chev.setAttribute("aria-hidden", "true");
+      b.append(sym, text, chev);
+      const list = el("ol", "ev-cellflags");
+      list.id = `${ev.id}-flags-${key.replace(/[^\w-]/g, "_")}`;
+      list.hidden = true;
+      b.setAttribute("aria-controls", list.id);
+      b.addEventListener("click", () => {
+        view.selected = key;
+        if (!view.open.delete(key)) view.open.add(key);
+        render();
+      });
+      td.append(b, list);
       tr.appendChild(td);
-      view.cells.set(key, b);
+      view.cells.set(key, { b, sym, text, chev, list, sig: null });
     }
     const tot = el("td", "num");
     tr.appendChild(tot);
@@ -778,12 +790,16 @@ function render() {
     }
   }
 
-  for (const [key, b] of view.cells) {
-    const s = ev.sessions.get(key);
-    b.className = `ev-cell st-${s.state}`;
-    b.firstChild.textContent = GLYPH[s.state];
-    b.lastChild.textContent = cellText(s);
-    b.setAttribute("aria-current", String(key === view.selected));
+  for (const [key, cell] of view.cells) {
+    const s = ev.sessions.get(key), open = view.open.has(key);
+    cell.b.className = `ev-cell st-${s.state}`;
+    cell.sym.textContent = GLYPH[s.state];
+    cell.text.textContent = cellText(s);
+    cell.chev.textContent = open ? "▾" : "▸";
+    cell.b.setAttribute("aria-current", String(key === view.selected));
+    cell.b.setAttribute("aria-expanded", String(open));
+    cell.list.hidden = !open;
+    if (open) renderCellFlags(cell, s, ev.handle.sessionFlags(key));
   }
   for (const [table, td] of view.rowTotals) {
     td.textContent = fmt(sum(all.filter((s) => s.cond === view.cond && s.table === table), "flags"));
@@ -803,6 +819,27 @@ function render() {
   if (atEnd) box.scrollTop = box.scrollHeight;
 
   renderDetail();
+}
+
+// An open cell's flags, one line each: number, title, dimension, and how its
+// investigation went once it has one. Rebuilt only when they change, not on every
+// tick of the clock.
+function renderCellFlags(cell, s, flags) {
+  const sig = JSON.stringify([s.state, flags.map((f) => [f.n, f.title, f.dimension, f.status])]);
+  if (sig === cell.sig) return;
+  cell.sig = sig;
+  const items = flags.map((f) => {
+    const li = el("li");
+    const tag = [f.dimension, f.status !== "flagged" && f.status].filter(Boolean).join(" · ");
+    li.append(el("span", "n", `#${f.n}`), f.title || "(untitled)");
+    if (tag) li.append(el("span", "dim", ` · ${tag}`));
+    return li;
+  });
+  if (!items.length) {
+    const over = ENDED.includes(s.state) || s.state === "investigating";
+    items.push(el("li", "none", s.state === "queued" ? "Not started yet." : over ? "No flags." : "No flags yet."));
+  }
+  cell.list.replaceChildren(...items);
 }
 
 function renderDetail() {
@@ -830,7 +867,7 @@ function renderDetail() {
   row("Session ID", s.id || "assigned when it starts", s.id ? "mono" : null);
   box.replaceChildren(dl, el("p", "foot",
     "Turns and tool calls include the session's investigations. " + (view.ev.mode === "live"
-      ? "Flag text and the transcript are in the downloaded results, not shown here."
+      ? "Each flag's finding and evidence, and the transcript, are in the downloaded results."
       : "The transcript opens after scoring, with any match to a held-out defect redacted.")));
 }
 
@@ -1603,6 +1640,8 @@ function RuntimeHarness(plan, onEvent) {
       }
     },
     flags,
+    sessionFlags: (key) => [...(jobs.get(key)?.issues.values() ?? [])].sort((a, b) => a.n - b.n)
+      .map(({ n, title, dimension, status }) => ({ n, title, dimension, status })),
     investigate(picks) {
       if (phase !== "selection") return;
       const q = roundQueue(picks, jobs, (j, n) => j.issues.has(n));
@@ -1642,8 +1681,8 @@ function RuntimeHarness(plan, onEvent) {
 // ---- MockHarness ----------------------------------------------------------------
 // Stands in for the harness the design calls for, so the monitor has something to
 // show. The contract every harness keeps:
-//   Harness(plan, onEvent) -> { stop(), flags(), investigate(picks), finish() },
-//     and RuntimeHarness adds results()
+//   Harness(plan, onEvent) -> { stop(), flags(), sessionFlags(key), investigate(picks),
+//     finish() }, and RuntimeHarness adds results()
 //   plan:  { units: [{ key, cond, run, table, kind, after }], parallel,
 //            conds: { [key]: { label, ...settings } }, snapshot, tables }
 //   onEvent receives
@@ -1656,9 +1695,11 @@ function RuntimeHarness(plan, onEvent) {
 // { key, n, title, dimension, table, column, finding, evidence };
 // investigate([{ key, n }]) starts a round of them, and finish() ends the run. A
 // round that leaves flags open pauses again. stop() ends discovery for good, but
-// in investigation it ends only the round.
+// in investigation it ends only the round. sessionFlags(key) gives one session's
+// flags so far, at any point, as { n, title, dimension, status }.
 // Counts reach the monitor through onEvent, and flag text only through flags(),
-// for the pick: the rest of it is for the scorer.
+// for the pick, and sessionFlags(), for a grid cell someone opens. Findings,
+// evidence and transcripts are for the scorer.
 //
 // Everything under the contract is make-believe. Step counts, flag counts and
 // failure rates are random and the flags are placeholders, chosen only to look
@@ -1776,6 +1817,8 @@ function MockHarness(plan, onEvent) {
   }
 
   const flags = () => openFlags(order, plan.conds, (j) => j.list);
+  const sessionFlags = (key) => (jobs.get(key)?.list ?? []).map(({ n, title, dimension }) =>
+    ({ n, title, dimension, status: "flagged" }));
 
   status("resetting");
   log(`Resetting the warehouse to snapshots/${plan.snapshot} (simulated).`);
@@ -1822,6 +1865,7 @@ function MockHarness(plan, onEvent) {
       }
     },
     flags,
+    sessionFlags,
     investigate(picks) {
       if (phase !== "selection") return;
       const q = roundQueue(picks, jobs, (j, n) => n >= 1 && n <= j.list.length);
