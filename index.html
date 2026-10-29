@@ -340,9 +340,11 @@
   .s-explained .pill { color: var(--ok); }
   .s-inconclusive .pill { color: var(--err); }
   /* Decided against, but kept legible and reachable: the user can still tick it in
-     a later round, so this dims rather than hides. */
-  .issue.s-ignored { opacity: .55; }
-  .issue.s-ignored:hover, .issue.s-ignored:focus-within { opacity: 1; }
+     a later round, so this dims rather than hides. A flag withdrawn as a known
+     issue dims the same way, so its reason stays readable. */
+  .issue.s-ignored, .issue.s-known { opacity: .55; }
+  .issue.s-ignored:hover, .issue.s-ignored:focus-within,
+  .issue.s-known:hover, .issue.s-known:focus-within { opacity: 1; }
   .issue dl { margin: 0; padding: 0 10px 10px; border-top: 1px solid var(--rule); }
   .issue dt { font-size: 0.625rem; text-transform: uppercase; letter-spacing: .5px;
               color: var(--muted); margin: 9px 0 3px; }
@@ -949,7 +951,7 @@
   </footer>
 
   <script src="config.js?v=9ec5f07378"></script>
-  <script src="app.js?v=52dcc6c6e7"></script>
-  <script src="eval.js?v=50fbc062f8"></script>
+  <script src="app.js?v=76a19cae8b"></script>
+  <script src="eval.js?v=779e646e5d"></script>
 </body>
 </html>

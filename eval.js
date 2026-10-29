@@ -1164,10 +1164,11 @@ function sessionNamer(conds) {
 const isOpen = (j, n) => !j.inv.has(n) || j.inv.get(n) === "failed";
 
 // The flags open to a pick, in session start order: the pick's list. `list(j)`
-// gives a session's flags.
+// gives a session's flags. One the known-issues check withdrew is not open: it
+// stays in the session's flags for the scorer, with its reason.
 function openFlags(order, conds, list) {
   return order.filter((j) => conds[j.cond].investigate).flatMap((j) => list(j)
-    .filter((i) => isOpen(j, i.n))
+    .filter((i) => i.status !== "known" && isOpen(j, i.n))
     .map((i) => ({ key: j.key, n: i.n, title: i.title, dimension: i.dimension, table: i.table,
                    column: i.column, finding: i.finding, evidence: i.evidence })));
 }
@@ -1364,20 +1365,24 @@ function RuntimeHarness(plan, onEvent) {
   const doneStats = (d) => ({ reason: d.reason, message: d.message ?? null, model_turns: d.model_turns,
     tool_calls: d.tool_calls, issue_count: d.issue_count, issue_max: d.issue_max, prompt_variant: d.prompt_variant,
     model: d.model, effort: d.effort ?? null, max_output_tokens: d.max_output_tokens ?? null,
-    thread_messages: d.thread_messages, runtime_session: d.session });
+    thread_messages: d.thread_messages, runtime_session: d.session, known_check: d.known_check ?? null });
 
   // With a known-issues list, the Runtime appends the session's slice of it -- the
   // entries for j.table, or every entry for "*" -- to the task, and says which ids
-  // it showed before any model call.
+  // it showed before any model call. When the agent has finished, its check of the
+  // flags against those entries withdraws the ones that repeat one (issue_update,
+  // status "known"). A session's count is of the flags it kept.
   async function discover(j, w) {
     let done = null;
     const { known_issues: list, model, effort, prompt, cap } = plan.conds[j.cond];
     const body = { task: j.task, model, effort, prompt_variant: prompt, max_issues: cap };
-    if (list !== "off") Object.assign(body, { table: j.table, known_issues: { list, version: known.get(list) } });
+    if (list !== "off") {
+      Object.assign(body, { table: j.table, known_issues: { list, version: known.get(list) }, known_check: true });
+    }
     await call(w, body, (e) => {
-      if (e.type === "issue") {
+      if (e.type === "issue" || e.type === "issue_update") {
         j.issues.set(e.issue.n, e.issue);
-        j.flags = j.issues.size;
+        j.flags = [...j.issues.values()].filter((i) => i.status !== "known").length;
       } else if (e.type === "known_issues") {
         j.known = { list: e.list, version: e.version, table: e.table, ids: e.ids };
         return;
@@ -1646,8 +1651,9 @@ function RuntimeHarness(plan, onEvent) {
   }
 
   // The models and their effort levels, prompt variants and cap range the Runtime
-  // takes. One from before 2026-10-27 answers with an error, as for knownLists();
-  // v29 has no model list, and v30 no effort levels.
+  // takes, and whether it checks flags against the known issues. One from before
+  // 2026-10-27 answers with an error, as for knownLists(); v29 has no model list,
+  // v30 no effort levels, and one from before 2026-10-28 no known-issues check.
   async function settings() {
     const w = { conv: "eval-" + crypto.randomUUID(), abort: null };
     let have = null;
@@ -1663,6 +1669,9 @@ function RuntimeHarness(plan, onEvent) {
       }
       if (!have.prompt_variants.includes(c.prompt)) throw new Error(`The deployed Runtime has no prompt ${c.prompt}.`);
       if (c.cap > have.cap_ceiling) throw new Error(`The deployed Runtime caps a session at ${have.cap_ceiling} issues.`);
+      if (c.known_issues !== "off" && !have.known_check) {
+        throw new Error("The deployed Runtime does not check flags against the known issues yet. Deploy agentcore-runtime.");
+      }
     }
   }
 

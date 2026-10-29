@@ -364,13 +364,14 @@ const picked = new Set();          // n's the user has ticked but not yet submit
 
 // Statuses that are still the user's to decide, and so still carry a checkbox.
 // `ignored` stays checkable on purpose: passing on an issue in one round should
-// not be a permanent verdict.
+// not be a permanent verdict. `known` does not: the known-issues check that ends
+// discovery withdrew it as repeating a listed entry.
 const TRIAGE_ABLE = new Set(["flagged", "ignored"]);
 // `flagged` gets no pill — during discovery every ticket is flagged, so a column of
 // identical pills would be noise rather than information.
 const STATUS_LABEL = {
   selected: "selected", ignored: "ignored", investigating: "investigating…",
-  explained: "root cause found", inconclusive: "inconclusive",
+  explained: "root cause found", inconclusive: "inconclusive", known: "known issue",
 };
 
 // Sort groups, most actionable first: what the agent is working, then what still
@@ -384,7 +385,7 @@ const STATUS_LABEL = {
 const SORT_RANK = {
   selected: 0, investigating: 0, explained: 0, inconclusive: 0,   // the investigation set
   flagged: 1,                                                     // still awaiting the user
-  ignored: 2,                                                     // passed over
+  ignored: 2, known: 2,                                           // passed over, or withdrawn
 };
 
 // Every field below is model-authored text, so it is set with textContent and
@@ -416,6 +417,8 @@ function issueDetails(issue) {
     dl.appendChild(el("dt", null, label));
     dl.appendChild(el("dd", mono ? "mono" : null, value));
   };
+  const ki = issue.known_issue;
+  if (ki) row("Withdrawn as known issue", `${ki.id}. ${ki.reason}`);
   row("Finding", issue.finding);
   row("Evidence", issue.evidence, true);
   const rc = issue.root_cause;
@@ -475,10 +478,10 @@ function upsertIssue(issue) {
   }
   const d = issueDetails(issue);
   // An update must not collapse what the user opened -- except on the way to
-  // `ignored`, where collapsing is the point: a passed-over issue should not keep
-  // holding open a screenful of evidence above the ones being worked. Reopening it
-  // afterwards still works; nothing here forces it shut again.
-  d.open = wasOpen && issue.status !== "ignored";
+  // `ignored` or `known`, where collapsing is the point: a passed-over issue should
+  // not keep holding open a screenful of evidence above the ones being worked.
+  // Reopening it afterwards still works; nothing here forces it shut again.
+  d.open = wasOpen && issue.status !== "ignored" && issue.status !== "known";
   row.appendChild(d);
 
   const li = existing || document.createElement("li");
