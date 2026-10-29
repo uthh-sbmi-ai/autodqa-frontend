@@ -4,7 +4,7 @@
 //
 // Two harnesses behind one monitor. RuntimeHarness runs the evaluation for real:
 // it drives the deployed Runtime from this tab through the same invoke API the
-// chat uses, so every model call goes through the Cloudflare AI Gateway like any
+// chat uses, so every model call goes through the LiteLLM proxy like any
 // other run. It covers what the Runtime can do today -- the reference condition
 // and custom runs, per table or whole warehouse -- and the Runtime fixes the
 // model, prompt, cap and tools. MockHarness plays a run in the browser with
@@ -91,7 +91,8 @@ const LIVE_PRESETS = new Set(["ref", "E3", "E5", "custom"]);
 
 // Mean cost of a Sonnet 4.5 discovery session, and of investigating one flag, as
 // measured on ev-1 (2026-10-19, Runtime v22, prompt caching on) from the
-// Cloudflare log's per-call cost: 15 completed sessions, 138 flags. Rough by
+// per-call cost in the Cloudflare AI Gateway's log (the model route until
+// 2026-10-28): 15 completed sessions, 138 flags. Rough by
 // nature, and only for that model and per-table sessions: a whole-warehouse
 // session has never been measured.
 const COST = { model: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", discovery: 0.80, perFlag: 0.42 };
@@ -388,7 +389,7 @@ function confirmLive(f) {
                          "flags and confirm their cost." : "";
   return window.confirm(
     `Launch a live evaluation?\n\n${plural(sessions, "discovery session")} on the deployed Runtime, ` +
-    `up to ${f.parallel} at a time, each billed through the Cloudflare AI Gateway. ${money}${pause}\n\n` +
+    `up to ${f.parallel} at a time, each billed through the LiteLLM proxy. ${money}${pause}\n\n` +
     "Keep this tab open until it ends: the tab is what drives the run, and closing it stops it.");
 }
 
@@ -399,7 +400,7 @@ function confirmRound(ev, k) {
   const per = flagCost(ev);
   return window.confirm(
     `Investigate ${plural(k, "flag")} on the deployed Runtime?\n\nEach one is its own conversation, ` +
-    `up to ${ev.f.parallel} at a time, billed through the Cloudflare AI Gateway. ` +
+    `up to ${ev.f.parallel} at a time, billed through the LiteLLM proxy. ` +
     (per ? `Rough cost: about ${usd(k * per)}.` : "There is no measured cost for this model yet.") +
     "\n\nKeep this tab open until the round ends.");
 }
