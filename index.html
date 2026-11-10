@@ -397,11 +397,8 @@
   .ev-form textarea { width: 100%; resize: vertical; }
   .ev-choice { display: flex; flex-wrap: wrap; gap: 0 16px; }
   .ev-choice.ev-stack { flex-direction: column; }
-  /* The conditions list is emptied when the model list replaces it in an
-     experiment, and hidden in an investigation, which keeps the experiment's ticks
-     for when the phase switches back. Its .ev-choice display beats the UA's
-     [hidden], hence the rule. */
-  #evCondList:empty, #evCondList[hidden] { display: none; }
+  /* The conditions list is emptied, not hidden, when the model list replaces it. */
+  #evCondList:empty { display: none; }
   .ev-choice label, .ev-check, .ev-tablegrid label { display: inline-flex; align-items: center; gap: 8px;
                                                      min-height: 44px; font-size: 0.8125rem; }
   .ev-form input[type="radio"], .ev-form input[type="checkbox"] { width: 18px; height: 18px; margin: 0;
@@ -964,6 +961,6 @@
 
   <script src="config.js?v=9ec5f07378"></script>
   <script src="app.js?v=76a19cae8b"></script>
-  <script src="eval.js?v=901d8866b7"></script>
+  <script src="eval.js?v=a4e3481fd5"></script>
 </body>
 </html>

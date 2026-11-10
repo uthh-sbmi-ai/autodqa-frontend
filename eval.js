@@ -256,11 +256,12 @@ for (const o of presetOpts) {
 }
 
 // Which control each setting shows: its own, or the Conditions box when the
-// experiment varies it. An investigation varies the model (one condition per
-// model line), and the prompt and cap are discovery's alone, so they go.
+// experiment varies it. An investigation is one model, from the Model dropdown
+// as for a single discovery condition, and the prompt and cap are discovery's
+// alone, so they go.
 function syncFields() {
   const inv = evalPhase === "investigation";
-  const axis = inv ? "model" : PRESETS[preset].axis;
+  const axis = inv ? null : PRESETS[preset].axis;
   document.querySelectorAll(".ev-field[data-axis]").forEach((f) => {
     const varied = f.dataset.axis === axis;
     f.hidden = inv && f.dataset.axis !== "model";
@@ -269,12 +270,11 @@ function syncFields() {
   });
   $("evConds").hidden = !axis;
   $("evModelsField").hidden = axis !== "model";
-  $("evCondList").hidden = inv;
   $("evCondsLegend").textContent = axis ? `Conditions · ${AXIS_NAMES[axis]}` : "Conditions";
 }
 
 // The phase picks which half of the form shows: an experiment and its tables for
-// discovery, a brief set for investigation. What is shared -- models, effort, runs
+// discovery, a brief set for investigation. What is shared -- model, effort, runs
 // and parallelism -- stays as it was, except the run count, which each phase
 // defaults on its own.
 function applyPhase(p) {
@@ -285,7 +285,8 @@ function applyPhase(p) {
   $("evBriefsField").hidden = !inv;
   $("evRunCount").value = inv ? INV_RUNS : PRESETS[preset].runs || REF_RUNS;
   const help = inv ? "Every model investigates the same briefs, each in a new conversation: a planted " +
-                     "defect's symptom, stated as a discovery flag would state it and nothing more."
+                     "defect's symptom, stated as a discovery flag would state it and nothing more. One " +
+                     "model per evaluation: to compare models, launch one for each."
                    : PRESETS[preset].help || "";
   $("evPresetHelp").textContent = help;
   $("evPresetHelp").hidden = !help;
@@ -335,12 +336,12 @@ const briefLines = () => [...new Set($("evBriefIds").value.split(/[\s,]+/).filte
 function readForm() {
   const common = { mode, runs: Number($("evRunCount").value), parallel: Number($("evParallel").value) };
   if (evalPhase === "investigation") {
-    // Effort is the only setting besides the model: an investigation has no prompt
-    // variant, cap or known-issues list. `briefs` is filled in by briefCheck.
-    const base = { effort: $("evEffort").value, tools: REFERENCE.tools };
+    // One model, and effort the only setting besides it: an investigation has no
+    // prompt variant, cap or known-issues list. `briefs` is filled in by briefCheck.
+    const base = { model: $("evModel").value, effort: $("evEffort").value, tools: REFERENCE.tools };
     return {
       ...common, phase: "investigation", preset: "investigation", base,
-      conds: modelLines().map((m) => ({ label: modelName(m), settings: { ...base, model: m } })),
+      conds: [{ label: modelName(base.model), settings: base }],
       briefSet: $("evBriefSet").value, briefIds: briefLines(), briefs: null,
     };
   }
@@ -371,7 +372,7 @@ function problems(f) {
   if (!inv && f.mode === "live" && !LIVE_PRESETS.has(f.preset)) {
     return "This experiment cannot run on the deployed Runtime yet.";
   }
-  if (!f.conds.length) return inv || p.axis === "model" ? "List at least one model ID." : "Tick at least one condition.";
+  if (!f.conds.length) return p.axis === "model" ? "List at least one model ID." : "Tick at least one condition.";
   // Only the models the dropdown offers: the Runtime refuses any other. (E1's
   // free-text list is where another one could come from.)
   const unknown = f.conds.map((c) => c.settings.model).find((m) => !modelOpt(m));
@@ -465,9 +466,9 @@ function confirmBriefs(f) {
   const money = cost == null ? "Each one is billed; there is no measured cost for this model yet."
     : `Rough cost: about ${usd(cost)}, at what investigating one discovery flag cost.`;
   return window.confirm(
-    `Launch a live investigation evaluation?\n\n${plural(ids.length * f.conds.length * f.runs, "investigation")}: ` +
-    `${plural(ids.length, "brief")} of ${set} v${version}, for ${plural(f.conds.length, "model")}` +
-    `${f.runs > 1 ? `, ${plural(f.runs, "run")} each` : ""}. Each is its own conversation on the deployed Runtime, ` +
+    `Launch a live investigation evaluation?\n\n${plural(ids.length * f.runs, "investigation")} by ` +
+    `${f.conds[0].label} at ${EFFORT_NAMES[f.base.effort]} effort: ${plural(ids.length, "brief")} of ${set} ` +
+    `v${version}${f.runs > 1 ? `, ${plural(f.runs, "run")} of each` : ""}. Each is its own conversation on the deployed Runtime, ` +
     `up to ${f.parallel} at a time, billed through the LiteLLM proxy. ${money}\n\n${KEEP_OPEN}`);
 }
 
@@ -490,9 +491,12 @@ function launch(f) {
   const inv = f.phase === "investigation";
   const ev = {
     id: `ev-${evals.length + 1}`, mode: f.mode, phase: f.phase, preset: f.preset, f,
-    title: inv ? `Investigation · ${f.briefs.set} v${f.briefs.version}`
+    // An investigation is named by its model, so evaluations of several models
+    // launched side by side can be told apart in the list.
+    title: inv ? `Investigation · ${f.conds[0].label} · ${f.briefs.set} v${f.briefs.version}`
                : presetOpts.find((o) => o.value === f.preset).dataset.text,
-    short: inv ? "Investigation" : f.preset === "ref" ? "Reference" : f.preset === "custom" ? "Custom" : f.preset,
+    short: inv ? `Investigation · ${f.conds[0].label}`
+               : f.preset === "ref" ? "Reference" : f.preset === "custom" ? "Custom" : f.preset,
     conds: f.conds.map((c, i) => ({ ...c, key: "c" + i })),
     status: f.mode === "live" ? "running" : "resetting", started: Date.now(), ended: null,
     units: [], sessions: new Map(), log: [],
@@ -1463,7 +1467,7 @@ function RuntimeHarness(plan, onEvent) {
     if (inv) {
       const { set, version, ids } = plan.briefs;
       log(`Each investigation starts from one brief of ${set} v${version}, as the only ticket of a new ` +
-          `conversation: ${plural(ids.length, "brief")} per model and run.`);
+          `conversation: ${plural(ids.length, "brief")} per run.`);
       log(`Starting ${plural(jobs.size, "investigation")}, up to ${plan.parallel} at a time.`);
       return pump();
     }
