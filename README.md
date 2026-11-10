@@ -10,13 +10,14 @@ Cloudflare Access); previously hosted on AWS CloudFront + S3.
 - `app.js` — sign-in (Cognito) + streaming invoke of the Bedrock AgentCore
   Runtime; renders each reason → act → observe step live
 - `eval.js` — the Evaluation tab: a launch form and monitor for batch
-  evaluation runs (one discovery session per table, per run, per condition).
-  A live run drives the deployed Runtime from the browser tab: one conversation
-  per discovery session, then a pause in which you pick the flags to
-  investigate (one conversation each, in rounds), results downloadable as
-  JSON. The experiments the Runtime cannot run yet are simulated in the
-  browser instead. Loaded after `app.js`, whose helpers it uses, so the two
-  ship together.
+  evaluation runs, one phase at a time. Discovery runs one session per table,
+  per run, per condition. Investigation runs one conversation per brief, per
+  run, per model: every model gets the same symptom-only brief for each planted
+  defect, from the set bundled into the Runtime, independently of any discovery
+  run. A live run drives the deployed Runtime from the browser tab, and its
+  results download as JSON. The discovery experiments the Runtime cannot run
+  yet are simulated in the browser instead. Loaded after `app.js`, whose
+  helpers it uses, so the two ship together.
 - `config.js` — generated deployment config (Cognito region/client id, runtime
   ARN, model id). Not secret — these values are shipped to every browser — but
   environment-specific.
