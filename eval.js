@@ -915,9 +915,11 @@ function render() {
 
 // An open cell's flags, one line each: number, title, dimension, and status when
 // it is not plain "flagged" (a withdrawn known issue; an investigation's ticket,
-// once worked). Rebuilt only when they change, not on every tick of the clock.
+// once worked). An investigation's ticket, once decided, shows what was recorded
+// under it: attribution, provenance, root cause, evidence and fix, as the chat's
+// issue cards do. Rebuilt only when they change, not on every tick of the clock.
 function renderCellFlags(cell, s, flags) {
-  const sig = JSON.stringify([s.state, flags.map((f) => [f.n, f.title, f.dimension, f.status])]);
+  const sig = JSON.stringify([s.state, flags.map((f) => [f.n, f.title, f.dimension, f.status, f.root_cause])]);
   if (sig === cell.sig) return;
   cell.sig = sig;
   const brief = s.kind === "brief";
@@ -927,6 +929,13 @@ function renderCellFlags(cell, s, flags) {
     if (!brief) li.append(el("span", "n", `#${f.n}`));    // a brief's ticket is always #1
     li.append(f.title || "(untitled)");
     if (tag) li.append(el("span", "dim", ` · ${tag}`));
+    if (brief && f.root_cause && (f.status === "explained" || f.status === "inconclusive")) {
+      const dl = el("dl", "ev-finding");
+      rootCauseRows((label, value, mono) => {
+        if (value) dl.append(el("dt", null, label), el("dd", mono ? "mono" : null, value));
+      }, f.root_cause);
+      li.append(dl);
+    }
     return li;
   });
   if (!items.length) {
@@ -1519,7 +1528,8 @@ function RuntimeHarness(plan, onEvent) {
       pump();
     },
     sessionFlags: (key) => [...(jobs.get(key)?.issues.values() ?? [])].sort((a, b) => a.n - b.n)
-      .map(({ n, title, dimension, status }) => ({ n, title, dimension, status })),
+      .map(({ n, title, dimension, status, root_cause }) => ({ n, title, dimension, status,
+                                                               root_cause: root_cause ?? null })),
     results() {
       const iso = (t) => (t ? new Date(t).toISOString() : null);
       // Attempts that failed for reasons outside the agent, set aside before the
@@ -1557,7 +1567,7 @@ function RuntimeHarness(plan, onEvent) {
 //     { type: "log", text, bad }             one line for the activity log
 // When every session has ended the run awaits scoring; stop() ends it early.
 // sessionFlags(key) gives one session's flags so far (an investigation's one
-// ticket), at any point, as { n, title, dimension, status }.
+// ticket), at any point, as { n, title, dimension, status, root_cause }.
 // Counts reach the monitor through onEvent, and flag text only through
 // sessionFlags(), for a grid cell someone opens. Findings, evidence, root causes
 // and transcripts are for the scorer.
@@ -1663,7 +1673,7 @@ function MockHarness(plan, onEvent) {
       status("stopped");
     },
     sessionFlags: (key) => (jobs.get(key)?.list ?? []).map(({ n, title, dimension }) =>
-      ({ n, title, dimension, status: "flagged" })),
+      ({ n, title, dimension, status: "flagged", root_cause: null })),
   };
 }
 

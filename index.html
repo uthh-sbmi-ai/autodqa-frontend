@@ -474,6 +474,13 @@
   .ev-cellflags li { padding: 2px 0; }
   .ev-cellflags .n { font-family: var(--font-mono); color: var(--muted); margin-right: 6px; }
   .ev-cellflags .dim, .ev-cellflags .none { color: var(--muted); }
+  /* What an investigation recorded, under its ticket. pre-wrap keeps the evidence's
+     query layout; break-word keeps a long path or identifier inside the cell. */
+  .ev-finding { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 6px 0 4px;
+                padding: 6px 8px; border-left: 2px solid var(--rule); }
+  .ev-finding dt { color: var(--muted); }
+  .ev-finding dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ev-finding dd.mono { font-family: var(--font-mono); font-size: 0.6875rem; }
   .st-queued, .st-cancelled { color: var(--muted); }
   .st-discovery, .st-investigating { color: var(--accent); }
   .st-done { color: var(--ok); }
@@ -960,7 +967,7 @@
   </footer>
 
   <script src="config.js?v=9ec5f07378"></script>
-  <script src="app.js?v=76a19cae8b"></script>
-  <script src="eval.js?v=a4e3481fd5"></script>
+  <script src="app.js?v=8d2ae688e9"></script>
+  <script src="eval.js?v=15e4529cef"></script>
 </body>
 </html>

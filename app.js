@@ -215,19 +215,13 @@ function addReport(issues) {
     if (STATUS_LABEL[issue.status]) head.appendChild(el("span", "pill", STATUS_LABEL[issue.status]));
     item.appendChild(head);
 
-    const rc = issue.root_cause || {};
     const dl = document.createElement("dl");
     const row = (label, value, mono) => {
       if (!value) return;
       dl.appendChild(el("dt", null, label));
       dl.appendChild(el("dd", mono ? "mono" : null, value));
     };
-    // Label the hedge. An unestablished cause presented in the same words as a
-    // proven one is the failure mode worth spending a line of UI on.
-    row(rc.conclusive ? "Root cause" : "Root cause (not established)",
-        rc.root_cause || "No cause was recorded for this issue.");
-    row("Traced to", rc.evidence, true);
-    row("Recommendation", rc.recommendation);
+    rootCauseRows(row, issue.root_cause || {});
     item.appendChild(dl);
     box.appendChild(item);
   }
@@ -398,6 +392,24 @@ function el(tag, cls, text) {
   return e;
 }
 
+// A recorded root cause as rows of a <dl>: where the fault is, then why. `row` is
+// the caller's (label, value, mono) adder, which skips an empty value -- so a
+// ticket recorded before attribution and provenance existed, or one the Runtime
+// closed itself, shows only what it has. Used by the issue cards, the report, and
+// the Evaluation tab's open cells (eval.js).
+const ATTRIBUTION_LABEL = { source: "Source data", etl: "ETL", unknown: "Unknown" };
+function rootCauseRows(row, rc) {
+  row("Attribution", ATTRIBUTION_LABEL[rc.attribution] || rc.attribution);
+  row("Provenance", rc.provenance, true);
+  // Say so when the agent did not actually establish the cause. Presenting a
+  // hypothesis in the same style as a proven answer is the failure mode worth
+  // spending a line of UI on.
+  row(rc.conclusive ? "Root cause" : "Root cause (not established)",
+      rc.root_cause || "No cause was recorded for this issue.");
+  row("Traced to", rc.evidence, true);
+  row("Recommendation", rc.recommendation);
+}
+
 function issueDetails(issue) {
   const d = el("details", "issue s-" + issue.status);
   const sum = document.createElement("summary");
@@ -421,22 +433,13 @@ function issueDetails(issue) {
   if (ki) row("Withdrawn as known issue", `${ki.id}. ${ki.reason}`);
   row("Finding", issue.finding);
   row("Evidence", issue.evidence, true);
-  const rc = issue.root_cause;
-  if (rc) {
-    // Say so when the agent did not actually establish the cause. Presenting a
-    // hypothesis in the same style as a proven answer is the failure mode worth
-    // spending a line of UI on.
-    row(rc.conclusive ? "Root cause" : "Root cause (not established)", rc.root_cause);
-    row("Traced to", rc.evidence, true);
-    row("Recommendation", rc.recommendation);
-  }
+  if (issue.root_cause) rootCauseRows(row, issue.root_cause);
   d.appendChild(dl);
 
   // One open at a time in its list. The column is narrow and evidence blocks are
   // long, so two open issues push the rest of the list out of view. Done on toggle
   // rather than with <details name> so it works in browsers without exclusive
-  // accordions. The list is whichever one holds it: the Evaluation tab's pick
-  // builds its own from this function.
+  // accordions.
   d.addEventListener("toggle", () => {
     if (!d.open) return;
     d.closest("ol")?.querySelectorAll("details.issue[open]").forEach((o) => { if (o !== d) o.open = false; });
