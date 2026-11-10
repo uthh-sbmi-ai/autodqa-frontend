@@ -393,14 +393,16 @@ function el(tag, cls, text) {
 }
 
 // A recorded root cause as rows of a <dl>: where the fault is, then why. `row` is
-// the caller's (label, value, mono) adder, which skips an empty value -- so a
-// ticket recorded before attribution and provenance existed, or one the Runtime
-// closed itself, shows only what it has. Used by the issue cards, the report, and
-// the Evaluation tab's open cells (eval.js).
-const ATTRIBUTION_LABEL = { source: "Source data", etl: "ETL", unknown: "Unknown" };
+// the caller's (label, value, mono) adder, which skips an empty value. Attribution
+// and provenance are always shown, as "Not recorded" on a ticket without them --
+// one the Runtime closed itself, or one recorded before the Runtime asked for them
+// (v43 and earlier) -- so their absence is visible rather than a missing row. Used
+// by the issue cards, the report, and the Evaluation tab's open cells (eval.js).
+const ATTRIBUTION_LABEL = { source: "Source", etl: "ETL", unknown: "Unknown" };
+const NOT_RECORDED = "Not recorded";
 function rootCauseRows(row, rc) {
-  row("Attribution", ATTRIBUTION_LABEL[rc.attribution] || rc.attribution);
-  row("Provenance", rc.provenance, true);
+  row("Attribution", ATTRIBUTION_LABEL[rc.attribution] || rc.attribution || NOT_RECORDED);
+  row("Provenance", rc.provenance || NOT_RECORDED, !!rc.provenance);
   // Say so when the agent did not actually establish the cause. Presenting a
   // hypothesis in the same style as a proven answer is the failure mode worth
   // spending a line of UI on.
